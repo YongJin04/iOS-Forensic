@@ -1,10 +1,11 @@
+# gui_events.py
+
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import os
 
-from backup_analyzer.manifest_utils import load_manifest_plist, load_manifest_db
-from backup_analyzer.tree_build_utils import build_file_tree_and_map
-from backup_analyzer.decrypt_utils import decrypt_backup
+from backup_analyzer.manifest_utils import load_manifest_plist
+from gui.file_list_utils import build_file_list_tree
 
 def browse_backup_path(path_var, password_entry, password_var, enable_pw_var):
     """ 폴더 선택 후 암호화 여부 확인 """
@@ -34,62 +35,74 @@ def toggle_password_entry(enable_pw_var, password_entry, password_var):
         password_entry.config(state="disabled")
         password_var.set("")
 
-def load_backup(backup_path, password, tree_widget, enable_pw_var):
-    """ 백업을 불러와 트리에 표시하는 함수 """
-    if not backup_path:
-        messagebox.showerror("Error", "Backup Directory를 입력해주세요.")
-        return
-    
-    if not os.path.isdir(backup_path):
-        messagebox.showerror("Error", f"유효한 디렉토리가 아닙니다: {backup_path}")
-        return
-
-    manifest_data = load_manifest_plist(backup_path)
-    if not manifest_data:
-        messagebox.showwarning("Warning", "Manifest.plist 파일을 찾지 못했습니다.")
+def on_backup_tree_select(event, file_list_tree, tree_widget):
+    """
+    Backup Tree에서 디렉토리를 선택했을 때 File List 트리를 갱신
+    (선택된 노드의 values[0] = 풀패스)
+    """
+    selected_item = tree_widget.selection()
+    if not selected_item:
         return
 
-    is_encrypted = manifest_data.get("IsEncrypted", False)
-    if is_encrypted and not enable_pw_var.get():
-        messagebox.showerror("Error", "이 백업은 암호화되어 있습니다. 비밀번호를 입력하세요.")
+    values = tree_widget.item(selected_item[0], "values")
+    if not values:
+        # 예: 루트 노드("System Files") 등에는 values가 없을 수 있음
         return
 
-    if enable_pw_var.get():
-        success = decrypt_backup(backup_path, password)
-        if not success:
-            messagebox.showerror("Error", "백업 복호화 실패!")
-            return
+    full_path = values[0]  # 예: "CameraRollDomain/Media/DCIM"
 
-    file_info_list = load_manifest_db(backup_path)
-    if not file_info_list:
-        messagebox.showwarning("Warning", "Manifest.db 파일을 찾을 수 없습니다.")
+    # File List Tree 갱신: 기존 노드들 삭제 후, 선택된 디렉토리의 서브트리를 추가
+    file_list_tree.delete(*file_list_tree.get_children())
+
+    sub_dict = tree_widget.path_dict.get(full_path, {})
+    build_file_list_tree(file_list_tree, sub_dict, parent="", full_path=full_path)
+
+def on_file_list_tree_open(event, file_list_tree, tree_widget):
+    """
+    File List Tree에서 디렉토리를 열 때(토글 펼침),
+    Backup Tree에서도 해당 디렉토리를 열어주기
+    """
+    selected_item = file_list_tree.focus()  # 현재 열리는 노드
+    if not selected_item:
         return
 
-    file_tree, _ = build_file_tree_and_map(file_info_list)
-    tree_widget.delete(*tree_widget.get_children())
+    values = file_list_tree.item(selected_item, "values")
+    if not values:
+        return
 
-    # 4개의 기본 루트 디렉토리 생성
-    system_node = tree_widget.insert("", "end", text="System Files")
-    user_app_node = tree_widget.insert("", "end", text="User App Files")
-    app_group_node = tree_widget.insert("", "end", text="App Group Files")
-    app_plugin_node = tree_widget.insert("", "end", text="App Plugin Files")
+    full_path = values[0]
 
-    def insert_tree(parent, current_dict):
-        for k, v in sorted(current_dict.items()):
-            node_id = tree_widget.insert(parent, "end", text=k)
-            if v:
-                insert_tree(node_id, v)
+    # Backup Tree에서도 해당 노드를 찾아 열어줌
+    node_id = tree_widget.backup_tree_nodes.get(full_path)
+    if node_id:
+        tree_widget.item(node_id, open=True)
+        tree_widget.see(node_id)
 
-    # file_tree의 각 도메인을 적절한 카테고리로 분배하여 추가
-    for domain, sub_dict in sorted(file_tree.items()):
-        # 분배 기준은 도메인명에 포함된 키워드를 이용합니다.
-        if "AppDomainGroup" in domain:
-            insert_tree(app_group_node, {domain: sub_dict})
-        elif "AppDomainPlugin" in domain:
-            insert_tree(app_plugin_node, {domain: sub_dict})
-        elif "HomeDomain" in domain or "AppDomain-" in domain:
-            insert_tree(user_app_node, {domain: sub_dict})
-        else:
-            insert_tree(system_node, {domain: sub_dict})
+def on_file_list_double_click(event, file_list_tree, tree_widget):
+    """
+    File List에서 디렉토리를 더블클릭하면,
+    Backup Tree에서도 해당 디렉토리를 선택/열기
+    (파일이면 동작 안 함)
+    """
+    selected_item = file_list_tree.selection()
+    if not selected_item:
+        return
 
-    messagebox.showinfo("Complete", "백업 로드 완료!")
+    values = file_list_tree.item(selected_item[0], "values")
+    if not values:
+        return
+
+    full_path = values[0]
+    # 디렉토리인지 확인
+    subtree = tree_widget.path_dict.get(full_path)
+    if not subtree:
+        # 디렉토리가 아니라 파일이거나 없는 경로
+        return
+
+    # Backup Tree에서 해당 디렉토리 노드를 선택/열기
+    node_id = tree_widget.backup_tree_nodes.get(full_path)
+    if node_id:
+        tree_widget.selection_set(node_id)
+        tree_widget.focus(node_id)
+        tree_widget.item(node_id, open=True)
+        tree_widget.see(node_id)
