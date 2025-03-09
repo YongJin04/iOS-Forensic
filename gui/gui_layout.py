@@ -18,19 +18,29 @@ def setup_gui(root):
     ttk.Label(top_frame, text="Backup Directory:", font=("Helvetica", 10)).pack(side="left", padx=5)
     path_entry = ttk.Entry(top_frame, textvariable=backup_path_var, width=40)
     path_entry.pack(side="left", padx=5)
-    ttk.Button(top_frame, text="Browse", command=lambda: browse_backup_path(
-        backup_path_var, password_entry, password_var, enable_pw_var)).pack(side="left", padx=5)
+    ttk.Button(
+        top_frame, 
+        text="Browse", 
+        command=lambda: browse_backup_path(backup_path_var, password_entry, password_var, enable_pw_var)
+    ).pack(side="left", padx=5)
 
-    ttk.Button(top_frame, text="Load Backup", command=lambda: load_backup(
-        backup_path_var.get(), password_var.get(), tree_widget, enable_pw_var
-    ), style="large.TButton").pack(side="right", padx=10)
+    ttk.Button(
+        top_frame, 
+        text="Load Backup", 
+        command=lambda: load_backup(backup_path_var.get(), password_var.get(), tree_widget, enable_pw_var),
+        style="large.TButton"
+    ).pack(side="right", padx=10)
 
     # Password 입력 필드 및 Enable Password 체크박스
     pw_frame = ttk.Frame(frame)
     pw_frame.pack(fill="x", pady=5)
 
-    enable_pw_check = ttk.Checkbutton(pw_frame, text="Enable Password", variable=enable_pw_var,
-                                      command=lambda: toggle_password_entry(enable_pw_var, password_entry, password_var))
+    enable_pw_check = ttk.Checkbutton(
+        pw_frame, 
+        text="Enable Password", 
+        variable=enable_pw_var,
+        command=lambda: toggle_password_entry(enable_pw_var, password_entry, password_var)
+    )
     enable_pw_check.pack(side="left", padx=5)
 
     ttk.Label(pw_frame, text="Password:", font=("Helvetica", 10)).pack(side="left", padx=5)
@@ -38,7 +48,14 @@ def setup_gui(root):
     password_entry.pack(side="left", padx=5)
     password_entry.config(state="disabled")  # 초기 상태는 비활성화
 
-    # TreeView (파일 트리)
-    tree_widget = ttk.Treeview(frame)
+    # Backup File Tree 영역 - TreeView와 스크롤바를 포함하는 프레임 생성
+    tree_frame = ttk.Frame(frame)
+    tree_frame.pack(fill="both", expand=True, pady=10)
+
+    tree_widget = ttk.Treeview(tree_frame)
     tree_widget.heading("#0", text="Backup File Tree", anchor="w")
-    tree_widget.pack(fill="both", expand=True, pady=10)
+    tree_widget.pack(side="left", fill="both", expand=True)
+
+    scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=tree_widget.yview)
+    scrollbar.pack(side="right", fill="y")
+    tree_widget.configure(yscrollcommand=scrollbar.set)

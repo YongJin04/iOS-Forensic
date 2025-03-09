@@ -68,14 +68,28 @@ def load_backup(backup_path, password, tree_widget, enable_pw_var):
     file_tree, _ = build_file_tree_and_map(file_info_list)
     tree_widget.delete(*tree_widget.get_children())
 
+    # 4개의 기본 루트 디렉토리 생성
+    system_node = tree_widget.insert("", "end", text="System Files")
+    user_app_node = tree_widget.insert("", "end", text="User App Files")
+    app_group_node = tree_widget.insert("", "end", text="App Group Files")
+    app_plugin_node = tree_widget.insert("", "end", text="App Plugin Files")
+
     def insert_tree(parent, current_dict):
         for k, v in sorted(current_dict.items()):
             node_id = tree_widget.insert(parent, "end", text=k)
             if v:
                 insert_tree(node_id, v)
 
+    # file_tree의 각 도메인을 적절한 카테고리로 분배하여 추가
     for domain, sub_dict in sorted(file_tree.items()):
-        domain_node = tree_widget.insert("", "end", text=domain)
-        insert_tree(domain_node, sub_dict)
+        # 분배 기준은 도메인명에 포함된 키워드를 이용합니다.
+        if "AppDomainGroup" in domain:
+            insert_tree(app_group_node, {domain: sub_dict})
+        elif "AppDomainPlugin" in domain:
+            insert_tree(app_plugin_node, {domain: sub_dict})
+        elif "HomeDomain" in domain or "AppDomain-" in domain:
+            insert_tree(user_app_node, {domain: sub_dict})
+        else:
+            insert_tree(system_node, {domain: sub_dict})
 
     messagebox.showinfo("Complete", "백업 로드 완료!")
