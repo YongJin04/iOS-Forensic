@@ -1,5 +1,4 @@
 # gui_layout.py
-
 import tkinter as tk
 from tkinter import ttk
 from gui.gui_events import (
@@ -10,6 +9,7 @@ from gui.gui_events import (
     on_file_list_double_click
 )
 from gui.load_backup_utils import load_backup
+from backup_analyzer.device_info import show_device_info  # 새로 추가
 
 def setup_gui(root):
     """ GUI 레이아웃 설정 """
@@ -56,6 +56,15 @@ def setup_gui(root):
     password_entry = ttk.Entry(pw_frame, textvariable=password_var, width=30, show="*")
     password_entry.pack(side="left", padx=5)
     password_entry.config(state="disabled")  # 초기 상태는 비활성화
+
+    # Device Info 버튼 추가 (Password 입력과 Backup Tree 사이)
+    device_info_frame = ttk.Frame(frame)
+    device_info_frame.pack(fill="x", pady=5)
+    ttk.Button(
+        device_info_frame,
+        text="Device Info",
+        command=lambda: show_device_info(backup_path_var.get())
+    ).pack(side="left", padx=5)
 
     # PanedWindow (왼쪽: Tree, 오른쪽: File List)
     paned = ttk.PanedWindow(frame, orient="horizontal")

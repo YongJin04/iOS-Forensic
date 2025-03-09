@@ -117,7 +117,7 @@ def load_backup(backup_path, password, tree_widget, enable_pw_var, file_list_tre
     # File List Tree 초기화 (사용자가 디렉토리를 선택해야 표시됨)
     file_list_tree.delete(*file_list_tree.get_children())
 
-    messagebox.showinfo("Complete", "백업 로드 완료!")
+    messagebox.showinfo("Complete", "Backup Load Complete!")
 
 if __name__ == "__main__":
     # 테스트 실행 (필요한 경우)
