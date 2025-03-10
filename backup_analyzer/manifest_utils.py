@@ -1,9 +1,9 @@
-import os
 import plistlib
 import sqlite3
+import os
 
 def load_manifest_plist(backup_dir: str) -> dict:
-    """Manifest.plist 파일을 로드하는 함수"""
+    """ Load Manifest.plist file. """
     path = os.path.join(backup_dir, "Manifest.plist")
     if not os.path.exists(path):
         return {}
@@ -11,7 +11,7 @@ def load_manifest_plist(backup_dir: str) -> dict:
         return plistlib.load(f)
 
 def load_manifest_db(backup_dir: str):
-    """Manifest.db 파일에서 파일 목록을 로드하는 함수"""
+    """ Load the file list from Manifest.db file. """
     db_path = os.path.join(backup_dir, "Manifest.db")
     if not os.path.exists(db_path):
         return []
