@@ -9,6 +9,7 @@ from gui.events_utils import (
     update_file_list_from_backup_tree_click,
     update_backup_tree_from_file_list_double_click
 )
+from gui.extract_file import show_file_list_context_menu
 from gui.load_backup_utils import load_backup  # Function to load backup data
 from artifact_analyzer.device.device_info import show_device_info  # Function to show device info
 
@@ -70,6 +71,16 @@ def setup_gui(rootWindow):
             backup_tree_widgets['backup_tree'],
             enable_pw_var,
             file_list_widgets['file_list_tree']
+        )
+    )
+
+    # Bind right-click event on the "File List" treeview to show context menu
+    file_list_widgets['file_list_tree'].bind(
+        "<Button-3>",  # Right mouse button click event
+        lambda event: show_file_list_context_menu(
+            event,                                      # Event object
+            file_list_widgets['file_list_tree'],        # Target Treeview widget (File List)
+            backup_path_var.get()                       # Backup path (passed to context menu function)
         )
     )
 
