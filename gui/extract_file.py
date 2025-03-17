@@ -34,11 +34,17 @@ def extract_file(file_list_tree, backup_path):
     if not file_values:
         return  # Exit if no file data found
 
-    ios_path = file_values[0]  # Extract iOS path value
+    ios_path = "/".join(file_values[0].split('/')[1:])
     print("[Extract] iOS path:", ios_path)
 
+    parts = ios_path.split("/")
+    if len(parts) < 2:
+        print("  -> Failed to parse iOS path.")
+        return
+
     # Parse iOS path into domain and relative path
-    domain, relative_path = parse_ios_path(ios_path)
+    domain = parts[0]
+    relative_path = "/".join(parts[1:])
     if not domain or not relative_path:
         print("  -> Failed to parse iOS path.")
         return
@@ -83,18 +89,6 @@ def extract_file(file_list_tree, backup_path):
         print(f"[Extract] File copied to:\n  {save_path}")
     except Exception as e:
         print(f"[Extract] Error copying file: {e}")
-
-
-def parse_ios_path(ios_path):
-    """ Parse iOS file path to extract domain and relative path. """
-    parts = ios_path.split("/")
-    if len(parts) < 3:
-        return None, None  # Invalid format
-
-    domain = parts[0]
-    relative_path = "/".join(parts[2:])  # Skip the second element (usually empty)
-    return domain, relative_path
-
 
 def lookup_fileID_in_manifest(backup_path, domain, relative_path):
     """ Query Manifest.db to retrieve fileID based on domain and relative path. """
