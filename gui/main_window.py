@@ -1,223 +1,285 @@
-import tkinter as tk  # Tkinter library for GUI development (standard library)
-from tkinter import ttk  # Module that provides themed widget set for Tkinter
+import tkinter as tk
+from tkinter import ttk
 import sys
 import os
+from PIL import Image, ImageTk
 
-from gui.events_utils import (
+from gui.styles import apply_styles
+from gui.components.backup_tree import create_backup_tree_frame
+from gui.components.file_list import create_file_list_frame
+from gui.components.artifact_panel import create_artifact_analysis_options
+from gui.components.device_info import *
+from gui.components.toggle import*
+
+from gui.utils.events import (
     browse_backup_path,
     toggle_password_entry,
     update_file_list_from_backup_tree_click,
     update_backup_tree_from_file_list_double_click
 )
-from gui.extract_file import show_file_list_context_menu
-from gui.load_backup_utils import load_backup  # Function to load backup data
-from artifact_analyzer.device.device_info import show_device_info  # Function to show device info
+from gui.utils.load_backup import load_backup
 
 def start_gui():
-    rootWindow = tk.Tk()  # Create the base window object based on Tk
-    rootWindow.title("iOS Forensic Viewer")  # Set the window title
-
-    # Set the taskbar icon for Windows OS
-    icon_path_ico = "gui/icon/pay1oad.ico"
-    if sys.platform == "win32":  # If running in Windows OS environment
-        import ctypes  # Module for loading C-compatible DLLs and libraries on Windows OS
-        if os.path.exists(icon_path_ico):  # Check if the icon file actually exists
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("iOS.Forensic.Viewer")
-            rootWindow.iconbitmap(icon_path_ico)  # Set the window icon
-
-    # Set the window size
-    rootWindow.minsize(900, 600)         # Set the minimum size of the window
-    rootWindow.geometry("900x600")       # Set the initial window size to 900x600
-
-    setup_gui(rootWindow)                # Call setup_gui function to build the GUI layout
-
-    rootWindow.mainloop()                # Start the event message loop to wait for user input
-
-def setup_gui(rootWindow):
-    # Main container frame with padding
-    frame = ttk.Frame(rootWindow, padding=15)
-    frame.pack(fill="both", expand=True)
-
-    # Initialize Input Variables
-    backup_path_var = tk.StringVar()    # Backup Directory Path
-    enable_pw_var = tk.IntVar(value=0)  # Enable Password Flag (0: disabled (Default), 1: enabled)
-    password_var = tk.StringVar()       # Backup Decrypt Password
-
-    # Create "Select Backup Directory" frame and its widgets
-    select_backup_widgets = create_select_backup_dir_frame(frame, backup_path_var)
+    """GUI 애플리케이션을 초기화하고 시작합니다."""
+    rootWindow = tk.Tk()
+    rootWindow.title("iOS Forensic Viewer")
     
-    # Create "Backup Decrypt Password" frame and its widgets
-    pw_widgets = create_backup_decrypt_password_frame(frame, password_var, enable_pw_var)
-    pw_widgets['enable_pw_check'].configure(command=lambda: toggle_password_entry(enable_pw_var, pw_widgets['password_entry'], password_var))
+    # 시스템 DPI 감지 및 스케일링 설정
+    if sys.platform.startswith('win'):
+        from ctypes import windll
+        try:
+            windll.shcore.SetProcessDpiAwareness(1)  # 프로세스 DPI 인식 활성화
+        except Exception:
+            pass
+    
+    # 스타일 적용 및 색상 가져오기
+    colors = apply_styles(rootWindow)
+    
+    # 창 크기 설정 (더 큰 초기 크기로 설정)
+    rootWindow.minsize(1200, 800)
+    rootWindow.geometry("1200x800")
+    rootWindow.configure(bg=colors['bg_light'])
+    
+    try:
+        from PIL import Image, ImageTk
+        icon_path = os.path.join(os.path.dirname(__file__), "icon", "pay1oad.png")
+        if os.path.exists(icon_path):
+            icon = Image.open(icon_path)
+            icon = icon.resize((64, 64))  # 원하는 크기로 조정
+            icon_image = ImageTk.PhotoImage(icon)
+            rootWindow.iconphoto(True, icon_image)
+    except Exception:
+        pass
+        
+    setup_gui(rootWindow, colors)
+    rootWindow.mainloop()
 
-    # Create "Artifact Analysis Bar" frame and its widgets
-    artifact_widgets = create_artifact_analysis_bar(frame, backup_path_var)
+def setup_gui(rootWindow, colors):
+    """GUI 레이아웃을 구성합니다."""
+    # 메인 컨테이너
+    main_frame = ttk.Frame(rootWindow)
+    main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+    
+    # ==== 헤더 섹션 (더 작게 조정) ====
+    header_frame = ttk.Frame(main_frame)
+    header_frame.pack(fill="x", padx=10, pady=(5, 10))
 
-    # Create PanedWindow for "Backup Tree" and "File List" (horizontal split)
-    paned = ttk.PanedWindow(frame, orient="horizontal")
+
+    try:
+        logo_path = os.path.join(os.path.dirname(__file__), "icon", "pay1oad.png")
+        if os.path.exists(logo_path):
+            logo_img = Image.open(logo_path)
+            logo_img = logo_img.resize((52, 52), Image.LANCZOS)
+            logo_photo = ImageTk.PhotoImage(logo_img)
+            logo_label = ttk.Label(header_frame, image=logo_photo)
+            logo_label.image = logo_photo  # 참조 유지
+            logo_label.pack(side="left", padx=(0, 10))
+
+    except Exception:
+        # 오류 발생 시 대체 텍스트 표시
+        icon_frame = ttk.Frame(header_frame, width=32, height=32, style="IconPlaceholder.TFrame")
+        icon_frame.pack(side="left", padx=(0, 10))
+        ttk.Label(icon_frame, text="🔍", font=("Arial", 16)).place(relx=0.5, rely=0.5, anchor="center")
+    
+    # 앱 제목
+    ttk.Label(header_frame, text="iOS Forensic Viewer", style="Header.TLabel").pack(side="left")
+    
+
+    # 오른쪽 상단에 테마 전환 버튼 추가
+    theme_btn = ttk.Button(header_frame, text="🌙", width=3, style="Icon.TButton")
+    theme_btn.pack(side="right", padx=5)
+    theme_btn.config(command=lambda: toggle_theme(rootWindow, colors, theme_btn))
+
+    # 입력 변수 초기화
+    backup_path_var = tk.StringVar()
+    enable_pw_var = tk.IntVar(value=0)
+    password_var = tk.StringVar()
+    
+    # ==== 상단 제어 영역 (더 작게 조정) ====
+    control_frame = ttk.Frame(main_frame)
+    control_frame.pack(fill="x", padx=10, pady=5)
+    control_frame.columnconfigure(0, weight=1)  # 왼쪽 프레임 비율
+    control_frame.columnconfigure(1, weight=1)  # 오른쪽 프레임 비율
+    uniform_height = 65  # 적절한 높이 값으로 조정하세요
+
+    # 왼쪽: 백업 로드 프레임
+    load_frame = ttk.Frame(control_frame, style="Card.TFrame", padding=10, height=uniform_height)
+    load_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+    load_frame.pack_propagate(False)
+    # 백업 로드 그리드 (더 작게 조정)
+    load_grid = ttk.Frame(load_frame)
+    load_grid.pack(fill="x", expand=True)
+    load_grid.columnconfigure(1, weight=1)
+    
+    # 백업 경로 입력
+    ttk.Label(load_grid, text="백업 경로:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+    path_entry = ttk.Entry(load_grid, textvariable=backup_path_var)
+    path_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+    
+    # 버튼 프레임
+    btn_frame = ttk.Frame(load_grid)
+    btn_frame.grid(row=0, column=2, padx=5, pady=5, sticky="e")
+    
+    browse_button = ttk.Button(btn_frame, text="찾아보기", width=10)
+    browse_button.pack(side="left", padx=2)
+    
+    load_backup_button = ttk.Button(btn_frame, text="백업 로드", style="Accent.TButton", width=12)
+    load_backup_button.pack(side="left", padx=2)
+    
+    # 오른쪽: 비밀번호 프레임
+    pw_frame = ttk.Frame(control_frame, style="Card.TFrame", padding=10, height=uniform_height)
+    pw_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+    pw_frame.pack_propagate(False)  # 내부 위젯이 프레임 크기를 변경하지 못하게 함
+
+    # 비밀번호 입력
+    pw_grid = ttk.Frame(pw_frame)
+    pw_grid.pack(fill="x", expand=True)
+    
+    enable_pw_check = ttk.Checkbutton(pw_grid, text="암호화된 백업", variable=enable_pw_var)
+    enable_pw_check.pack(side="left", padx=5)
+    
+    ttk.Label(pw_grid, text="비밀번호:").pack(side="left", padx=(10, 5))
+    password_entry = ttk.Entry(pw_grid, textvariable=password_var, show="*", state="disabled")
+    password_entry.pack(side="left", fill="x", expand=True, padx=5)
+    
+    # 패스워드 토글 버튼
+    pw_toggle_btn = ttk.Button(pw_grid, text="👁", width=3, style="Icon.TButton")
+    pw_toggle_btn.pack(side="right", padx=5)
+    
+    # 비밀번호 입력 토글 설정
+    enable_pw_check.configure(
+        command=lambda: toggle_password_entry(enable_pw_var, password_entry, password_var)
+    )
+    
+    # ==== 아티팩트 분석 탭 컨테이너 ====
+    notebook = ttk.Notebook(main_frame)
+    notebook.pack(fill="both", expand=True, padx=10, pady=10)
+    
+    
+    # === 첫 번째 탭: 백업 탐색 ===
+    explorer_tab = ttk.Frame(notebook, padding=5)
+    notebook.add(explorer_tab, text="  백업 탐색  ")
+    
+    # 콘텐츠 영역 (PanedWindow - 더 큰 영역으로 조정)
+    paned = ttk.PanedWindow(explorer_tab, orient="horizontal")
     paned.pack(fill="both", expand=True)
-
-    backup_tree_widgets = create_backup_tree_frame(paned)
-    paned.add(backup_tree_widgets['backup_tree_frame'], weight=2)  # Add tree frame to paned window with weight 2
     
-    file_list_widgets = create_file_list_frame(paned)
-    paned.add(file_list_widgets['file_list_frame'], weight=8)  # Add file list frame to paned window with weight 8
+    # 백업 트리 프레임
+    backup_tree_widgets = create_backup_tree_frame(paned, colors)
+    paned.add(backup_tree_widgets['backup_tree_frame'], weight=3)
 
-    select_backup_widgets['browse_button'].configure(command=lambda: browse_backup_path(backup_path_var, pw_widgets['password_entry'], password_var, enable_pw_var))  # Update the commands for buttons that depend on widgets created later
-    select_backup_widgets['load_backup_button'].configure(  # Update the commands for buttons that depend on widgets created later
+    
+    
+    # 아이콘 딕셔너리와 트리뷰를 변수에 저장 (추가된 부분)
+    backup_tree = backup_tree_widgets['backup_tree']
+    icon_dict = backup_tree_widgets['icon_dict']
+
+    
+    # 파일 리스트 프레임
+    file_list_widgets = create_file_list_frame(paned, colors)
+    paned.add(file_list_widgets['file_list_frame'], weight=7)
+    
+    # === 두 번째 탭: 아티팩트 분석 ===
+    artifact_tab = ttk.Frame(notebook, padding=5)
+    notebook.add(artifact_tab, text="  아티팩트 분석  ")
+    
+    # 아티팩트 분석 옵션
+    artifact_options = create_artifact_analysis_options(artifact_tab, backup_path_var, colors)
+    
+    # === 세 번째 탭: 대시보드 ===
+    dashboard_tab = ttk.Frame(notebook, padding=5)
+    notebook.add(dashboard_tab, text="  대시보드  ")
+    
+
+    # 대시보드 내용 (간단한 요약 정보)
+    #create_dashboard_content(dashboard_tab, colors)
+    
+
+
+
+    # ==== 상태 표시줄 ====
+    status_bar = ttk.Frame(main_frame, style="Statusbar.TFrame")
+    status_bar.pack(fill="x", padx=10, pady=(5, 0))
+    
+    status_label = ttk.Label(status_bar, text="준비됨", padding=(10, 5))
+    status_label.pack(side="left")
+    
+    # 진행 상태 표시
+    progress = ttk.Progressbar(status_bar, mode="determinate", length=200)
+    progress.pack(side="right", padx=10)
+    progress["value"] = 0
+    
+    # 메모리 사용량 표시
+    memory_label = ttk.Label(status_bar, text="메모리: 0 MB", padding=(10, 5))
+    memory_label.pack(side="right")
+    
+    # ==== 이벤트 연결 ====
+    browse_button.configure(
+        command=lambda: browse_backup_path(backup_path_var, password_entry, password_var, enable_pw_var)
+    )
+    
+    load_backup_button.configure(
         command=lambda: load_backup(
             backup_path_var.get(),
             password_var.get(),
             backup_tree_widgets['backup_tree'],
             enable_pw_var,
-            file_list_widgets['file_list_tree']
+            file_list_widgets['file_list_tree'],
+            status_label,
+            icon_dict=backup_tree_widgets['icon_dict']  # 아이콘 딕셔너리 전달
+
         )
     )
-
-    # Bind right-click event on the "File List" treeview to show context menu
-    file_list_widgets['file_list_tree'].bind(
-        "<Button-3>",  # Right mouse button click event
-        lambda event: show_file_list_context_menu(
-            event,                                      # Event object
-            file_list_widgets['file_list_tree'],        # Target Treeview widget (File List)
-            backup_path_var.get()                       # Backup path (passed to context menu function)
-        )
-    )
-
-    """
-     - Bind Treeview events (execute corresponding functions on each event)
-     - Treeview widgets, by default, toggle open when the "Double-Button-1" event occurs.
-    """
-    # Function that updates the "File List" when an item in the "Backup Tree" is one-clicked (selecting a file or directory).
-    backup_tree_widgets['backup_tree'].bind("<<TreeviewSelect>>", lambda event: update_file_list_from_backup_tree_click(event, file_list_widgets['file_list_tree'], backup_tree_widgets['backup_tree']))
-    # Function that updates the "Backup Tree" when an item in the "File List" is double-clicked (navigating the directory hierarchy).
-    file_list_widgets['file_list_tree'].bind("<Double-Button-1>", lambda event: update_backup_tree_from_file_list_double_click(event, file_list_widgets['file_list_tree'], backup_tree_widgets['backup_tree']))
-
-def create_select_backup_dir_frame(parent, backup_path_var):
-    """ Create Select Backup Directory Frame. """
-    select_backup_dir_frame = ttk.Frame(parent)
-    select_backup_dir_frame.pack(fill="x", pady=5)
-    select_backup_dir_frame.grid_columnconfigure(1, weight=1)  # Dynamically adjust child widget size when parent frame changes
-
-    # Label: "Backup Directory:"
-    ttk.Label(select_backup_dir_frame, text="Backup Directory:", font=("Helvetica", 10)).grid(row=0, column=0, padx=5, pady=2, sticky="w")
-
-    # Entry: "Backup Path"
-    path_entry = ttk.Entry(select_backup_dir_frame, textvariable=backup_path_var)
-    path_entry.grid(row=0, column=1, padx=5, pady=2, sticky="ew")
-
-    # Button Frame for "Browse" and "Load Backup" buttons
-    button_frame = ttk.Frame(select_backup_dir_frame)
-    button_frame.grid(row=0, column=2, padx=5, pady=2, sticky="e")
-    button_frame.grid_columnconfigure(0, weight=1)
-
-    # Button: "Browse"
-    browse_button = ttk.Button(
-        button_frame,             # Parent Frame
-        text="Browse",            # Text
-        command=lambda: None      # Placeholder: will be updated later to call browse_backup_path function
-    )
-    browse_button.pack(side="left", padx=2)
-
-    # Button: "Load Backup"
-    load_backup_button = ttk.Button(
-        button_frame,             # Parent Frame
-        text="Load Backup",       # Text
-        command=lambda: None,     # Placeholder: will be updated later to call load_backup function
-        style="large.TButton"
-    )
-    load_backup_button.pack(side="left", padx=2)
-
-    return {
-        'select_backup_dir_frame': select_backup_dir_frame,
-        'path_entry': path_entry,
-        'browse_button': browse_button,
-        'load_backup_button': load_backup_button
-    }
-
-def create_backup_decrypt_password_frame(parent, password_var, enable_pw_var):
-    """ Create Backup Decrypt Password Frame. """
-    pw_frame = ttk.Frame(parent)
-    pw_frame.pack(fill="x", pady=5)
-    pw_frame.grid_columnconfigure(1, weight=1)
-
-    # Button: "Enable Password"
-    enable_pw_check = ttk.Checkbutton(
-        pw_frame,               # Parent Frame
-        text="Enable Password", # Text
-        variable=enable_pw_var, # Connects check state to enable_pw_var variable
-        command=lambda: None    # Placeholder: will be updated later to call toggle_password_entry function
-    )
-    enable_pw_check.pack(side="left", padx=5)
-
-    # Label: "Password"
-    ttk.Label(pw_frame, text="Password:", font=("Helvetica", 10)).pack(side="left", padx=5)
-
-    # Entry: "Backup Password"
-    password_entry = ttk.Entry(pw_frame, textvariable=password_var, width=30, show="*")
-    password_entry.pack(side="left", padx=5)
-    password_entry.config(state="disabled")  # Default is "disabled"
-
-    return {
-        'pw_frame': pw_frame,
-        'enable_pw_check': enable_pw_check,
-        'password_entry': password_entry
-    }
-
-def create_artifact_analysis_bar(parent, backup_path_var):
-    """ Create Artifact Analysis Bar. """
-    device_info_frame = ttk.Frame(parent)
-    device_info_frame.pack(fill="x", pady=5)
-
-    # Button: "Device Info"
-    device_info_button = ttk.Button(
-        device_info_frame,           # Parent Frame
-        text="Device Info",          # Text
-        command=lambda: show_device_info(backup_path_var.get())  # If pressed, call show_device_info function
-    )
-    device_info_button.pack(side="left", padx=5)
-
-    return {
-        'device_info_frame': device_info_frame,
-        'device_info_button': device_info_button
-    }
-
-def create_backup_tree_frame(parent):
-    """ Create Backup Tree Frame. """
-    backup_tree_frame = ttk.Frame(parent)
     
-    # Create Treeview widget to display backup folder structure
-    backup_tree = ttk.Treeview(backup_tree_frame)
-    backup_tree.heading("#0", text="Backup Tree", anchor="w")  # Set treeview header (left aligned)
-    backup_tree.pack(side="left", fill="both", expand=True)
+    # 트리뷰 이벤트 바인딩
+    backup_tree_widgets['backup_tree'].bind(
+        "<<TreeviewSelect>>",
+        lambda event: update_file_list_from_backup_tree_click(
+            event,
+            file_list_widgets['file_list_tree'],
+            backup_tree_widgets['backup_tree']
+        )
+    )
+    
+    file_list_widgets['file_list_tree'].bind(
+        "<Double-Button-1>",
+        lambda event: update_backup_tree_from_file_list_double_click(
+            event,
+            file_list_widgets['file_list_tree'],
+            backup_tree_widgets['backup_tree']
+        )
+    )
+    
+    # 비밀번호 표시/숨김 토글
+    pw_toggle_var = tk.BooleanVar(value=False)
+    pw_toggle_btn.configure(
+        command=lambda: toggle_password_visibility(password_entry, pw_toggle_var, pw_toggle_btn)
+    )
+    
+    # 탭 변경 이벤트
+    notebook.bind("<<NotebookTabChanged>>", lambda e: update_status_on_tab_change(e, notebook, status_label))
 
-    # Create vertical scrollbar for the treeview (handles vertical scrolling)
-    backup_tree_scrollbar = ttk.Scrollbar(backup_tree_frame, orient="vertical", command=backup_tree.yview)
-    backup_tree_scrollbar.pack(side="right", fill="y")
-    backup_tree.configure(yscrollcommand=backup_tree_scrollbar.set)
 
     return {
-        'backup_tree_frame': backup_tree_frame,
         'backup_tree': backup_tree,
-        'backup_tree_scrollbar': backup_tree_scrollbar
+        'icon_dict': icon_dict,
+        # 다른 필요한 위젯들...
     }
 
-def create_file_list_frame(parent):
-    """ Create File List Frame. """
-    file_list_frame = ttk.Frame(parent)
 
-    # Create Treeview widget to display file list
-    file_list_tree = ttk.Treeview(file_list_frame)
-    file_list_tree.heading("#0", text="File List", anchor="w")  # Set treeview header (left aligned)
-    file_list_tree.pack(side="left", fill="both", expand=True)
+def toggle_password_visibility(password_entry, toggle_var, toggle_btn):
+    """비밀번호 표시/숨김을 전환합니다."""
+    current_state = toggle_var.get()
+    if current_state:
+        password_entry.config(show="*")
+        toggle_btn.config(text="👁")
+    else:
+        password_entry.config(show="")
+        toggle_btn.config(text="🔒")
+    toggle_var.set(not current_state)
 
-    # Create vertical scrollbar for the file list (handles vertical scrolling)
-    file_list_scrollbar = ttk.Scrollbar(file_list_frame, orient="vertical", command=file_list_tree.yview)
-    file_list_scrollbar.pack(side="right", fill="y")
-    file_list_tree.configure(yscrollcommand=file_list_scrollbar.set)
-
-    return {
-        'file_list_frame': file_list_frame,
-        'file_list_tree': file_list_tree,
-        'file_list_scrollbar': file_list_scrollbar
-    }
+def update_status_on_tab_change(event, notebook, status_label):
+    """탭이 변경될 때 상태 표시줄을 업데이트합니다."""
+    tab_id = notebook.select()
+    tab_text = notebook.tab(tab_id, "text").strip()
+    status_label.config(text=f"{tab_text} 모드 활성화됨")
