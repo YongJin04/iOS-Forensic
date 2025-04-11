@@ -6,6 +6,7 @@ from gui.components.display_message import *
 from gui.components.display_contacts import *
 from gui.components.display_photos_media import *
 from gui.components.display_call_history import *
+from gui.components.display_sms import *  # SMS 표시 모듈 추가
 
 from backup_analyzer.build_tree import *
 
@@ -33,8 +34,9 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
         {"name": "디바이스 정보", "icon": "📱", "command": lambda: display_device_info(content_frame, backup_path_var.get())},
         {"name": "브라우저", "icon": "🌐", "command": lambda: display_browser(content_frame, backup_path_var.get())},
         {"name": "카카오톡", "icon": "💬", "command": lambda: display_messages(content_frame, backup_path_var.get())},
-        {"name": "연락처", "icon": "📞", "command": lambda: display_contacts(content_frame, backup_path_var.get())},
+        {"name": "연락처", "icon": "📗", "command": lambda: display_contacts(content_frame, backup_path_var.get())},
         {"name": "통화 기록", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},  # 새로운 카테고리 추가
+        {"name": "SMS", "icon": "✉️", "command": lambda: display_sms(content_frame, backup_path_var.get())},  # SMS 카테고리 추가
         {"name": "사진 및 미디어", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
     ]
     
