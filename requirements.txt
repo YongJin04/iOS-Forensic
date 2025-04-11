@@ -1,0 +1,4 @@
+pillow
+matplotlib
+pycrypto
+tk
