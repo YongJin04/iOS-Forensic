@@ -306,7 +306,8 @@ def setup_gui(rootWindow, colors):
         lambda event: update_file_list_from_backup_tree_click(
             event,
             file_list_widgets['file_list_tree'],
-            backup_tree_widgets['backup_tree']
+            backup_tree_widgets['backup_tree'],
+            backup_path_var.get()
         )
     )
     

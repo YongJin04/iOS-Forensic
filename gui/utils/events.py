@@ -33,8 +33,7 @@ def toggle_password_entry(enable_pw_var, password_entry, password_var):
         password_var.set("")
 
 
-def update_file_list_from_backup_tree_click(event, file_list_tree, tree_widget):
-    """Updates the file list when a node in the backup tree is clicked."""
+def update_file_list_from_backup_tree_click(event, file_list_tree, tree_widget, backup_path):
     selected_item = tree_widget.selection()
     if not selected_item:
         return
@@ -47,7 +46,13 @@ def update_file_list_from_backup_tree_click(event, file_list_tree, tree_widget):
     file_list_tree.delete(*file_list_tree.get_children())
 
     sub_dict = tree_widget.path_dict.get(full_path, {})
-    build_file_list_tree(file_list_tree, sub_dict, parent="", full_path=full_path)
+    build_file_list_tree(
+        file_list_tree,
+        sub_dict,
+        parent="",
+        full_path=full_path,
+        backup_path=backup_path,
+    )
 
 
 def update_backup_tree_from_file_list_double_click(event, file_list_tree, tree_widget):

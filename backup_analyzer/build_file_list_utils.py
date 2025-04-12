@@ -1,46 +1,152 @@
-import os
-from typing import Dict, Any
-from tkinter import ttk
+"""
+파일‑리스트(TreeView) 구축 + Manifest.db / bplist 메타데이터 처리
+아이콘은 Tk 루트가 준비된 뒤 첫 호출 시 Lazy‑Load 된다.
+"""
 
+from __future__ import annotations
+import os, sqlite3, plistlib
+from datetime import datetime
+from typing import Dict, Any, Tuple
+from tkinter import ttk, PhotoImage, Widget
+
+# ────────────────────────────────────────────────────────────────
+# 1) 아이콘 (lazy‑load)
+# ────────────────────────────────────────────────────────────────
+_ICON_DICT: dict[str, PhotoImage] = {}      # 첫 호출 때 채워짐
+
+def _ensure_icons(master_widget: Widget) -> None:
+    """Tk 루트가 준비된 뒤 한 번만 PhotoImage 객체를 생성한다."""
+    if _ICON_DICT:                 # 이미 로드됨
+        return
+
+    base = os.path.join(os.path.dirname(__file__), "..", "gui", "icon")
+    def _icon(fname: str) -> PhotoImage:
+        return PhotoImage(master=master_widget,
+                          file=os.path.join(base, fname)).subsample(30, 30)
+
+    _ICON_DICT.update({
+        "folder": _icon("folder.png"),
+        "file":   _icon("file.png"),
+        "file":  _icon("file.png"),
+    })
+
+def get_file_icon(filename: str) -> str:
+    """확장자에 따라 'image' / 'file' 키 반환"""
+    if filename.lower().endswith(
+        (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".heic", ".dng", ".aae")
+    ):
+        return "file"
+    return "file"
+
+# ────────────────────────────────────────────────────────────────
+# 2) bplist 메타데이터 유틸
+# ────────────────────────────────────────────────────────────────
+def mode_to_rwx(mode: int) -> str:
+    perms = ["r", "w", "x"]
+    out = ""
+    for shift in (6, 3, 0):
+        bits = (mode >> shift) & 0b111
+        out += "".join(perms[i] if (bits & (1 << (2 - i))) else "-" for i in range(3))
+    return out
+
+def fmt_ts(ts: int | None) -> str:
+    if ts is None:
+        return ""
+    return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+def parse_bplist_metadata(blob: bytes | None) -> Tuple[int | None, str, str, str]:
+    """bplist00 → (size, mdate, cdate, perm)"""
+    if not blob:
+        return None, "", "", ""
+    try:
+        plist = plistlib.loads(blob)
+        root = plist["$objects"][plist["$top"]["root"].data]
+        size  = root.get("Size")
+        mdate = fmt_ts(root.get("LastModified"))
+        cdate = fmt_ts(root.get("Birth"))
+        perm  = mode_to_rwx(root.get("Mode")) if root.get("Mode") else ""
+        return f"{size:,}", mdate, cdate, perm
+    except Exception as e:
+        print(f"[bplist parse error] {e}")
+        return None, "", "", ""
+
+# ────────────────────────────────────────────────────────────────
+# 3) Manifest.db 조회
+# ────────────────────────────────────────────────────────────────
+def get_flags_and_file(backup_path: str, domain: str, rel_path: str):
+    db_path = os.path.join(backup_path, "Manifest.db")
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT flags, file FROM Files WHERE domain=? AND relativePath=?",
+                (domain, rel_path),
+            )
+            return cur.fetchone() or (None, None)
+    except Exception as e:
+        print(f"[DB Error] {e}")
+        return None, None
+
+# ────────────────────────────────────────────────────────────────
+# 4) TreeView 빌더
+# ────────────────────────────────────────────────────────────────
 def build_file_list_tree(
     file_list_tree: "ttk.Treeview",
     sub_dict: Dict[str, Any],
-    parent: str = "",
-    full_path: str = "",
+    parent: str        = "",
+    full_path: str     = "",
     current_depth: int = 0,
-    max_depth: int = 1,
+    max_depth: int     = 1,
+    backup_path: str   = "",
 ) -> None:
-    """#0(text) = 마지막 이름, values[0] = 전체 경로(숨김 열)."""
+    """
+    #0(text)  : 마지막 경로 요소
+    values[0] : 전체 경로 (숨김)
+    values[1‑] : Size / Type / mdate / cdate / perm
+    """
+    # Tk root 가 이미 생성된 시점 → 아이콘 준비
+    _ensure_icons(file_list_tree)
+
     if current_depth == 0:
-        for item in file_list_tree.get_children():
-            file_list_tree.delete(item)
+        for itm in file_list_tree.get_children():
+            file_list_tree.delete(itm)
 
     if not sub_dict:
         return
 
-    for name, child_obj in sorted(sub_dict.items()):
+    for name, child in sorted(sub_dict.items()):
         if not name:
             continue
 
-        node_full_path = f"{full_path}/{name}" if full_path else name
-        display_name   = node_full_path.split('/')[-1]
+        node_full = f"{full_path}/{name}" if full_path else name
 
-        # values: (fullpath, size, type, mdate, cdate, perm)
-        values = (node_full_path, ' ', ' ', ' ', ' ', ' ')
+        # Manifest.db 메타
+        try:
+            domain, _, rel_path = node_full.split("/", 2)
+        except ValueError:
+            domain, rel_path = node_full, ""
+        flags, blob = get_flags_and_file(backup_path, domain, rel_path)
+        size, mdate, cdate, perm = parse_bplist_metadata(blob)
 
+        file_type = "Directory" if flags != 1 else "File"
+        icon_key  = "folder" if file_type == "Directory" else get_file_icon(name)
+
+        values = (node_full, size or "", file_type, mdate, cdate, perm)
         node_id = file_list_tree.insert(
             parent,
-            'end',
-            text=display_name,
+            "end",
+            text=name,
             values=values,
+            image=_ICON_DICT[icon_key],
         )
 
-        if isinstance(child_obj, dict) and current_depth + 1 < max_depth:
+        if isinstance(child, dict) and current_depth + 1 < max_depth:
             build_file_list_tree(
                 file_list_tree,
-                child_obj,
+                child,
                 parent=node_id,
-                full_path=node_full_path,
+                full_path=node_full,
                 current_depth=current_depth + 1,
                 max_depth=max_depth,
+                backup_path=backup_path,
             )
