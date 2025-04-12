@@ -3,6 +3,7 @@ from tkinter import ttk
 import sys
 import os
 from PIL import Image, ImageTk
+import subprocess
 
 from gui.styles import apply_styles
 from gui.components.display_backup_tree import create_backup_tree_frame
@@ -165,6 +166,118 @@ def setup_gui(rootWindow, colors):
     notebook.add(dashboard_tab, text="  Dashboard  ")
     create_dashboard_content(dashboard_tab, colors)
     """
+
+    file_list_widgets['file_list_tree'].bind('<<TreeviewSelect>>', lambda e: preview_selected())
+
+    import cv2, rawpy, imageio_ffmpeg, sqlite3, xml.etree.ElementTree as ET
+    from PIL import Image, ImageTk
+    import os, sys
+
+    os.environ["IMAGEIO_FFMPEG_EXE"] = imageio_ffmpeg.get_ffmpeg_exe()
+
+    IMG_EXTS = {'png', 'jpg', 'jpeg', 'heic', 'aae', 'dng'}
+    VID_EXTS = {'mov', 'mp4'}
+
+    video_state = {"cap": None, "job": None}
+
+    def stop_video():
+        if video_state["job"]:
+            file_list_widgets['preview_label'].after_cancel(video_state["job"])
+            video_state["job"] = None
+        if video_state["cap"]:
+            video_state["cap"].release()
+            video_state["cap"] = None
+
+    def load_image(path, ext):
+        """확장자별 Pillow Image 반환(heic/dng/일반)."""
+        if ext == 'heic':
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+            return Image.open(path)
+        if ext == 'dng':
+            with rawpy.imread(path) as raw:
+                return Image.fromarray(raw.postprocess())
+        return Image.open(path)
+
+    def preview_selected(event=None):
+        sel = file_list_widgets['file_list_tree'].selection()
+        if not sel:
+            return
+        stop_video()
+
+        full_path = file_list_widgets['file_list_tree'].item(sel[0], 'values')[0]
+        ext = os.path.splitext(full_path)[1].lower().lstrip('.')
+
+        if ext not in IMG_EXTS | VID_EXTS:
+            file_list_widgets['preview_label'].config(text="(Preview not supported.)", image='')
+            return
+
+        # Manifest.db → 실제 백업 파일 경로
+        try:
+            domain, _, rel = full_path.split('/', 2)
+        except ValueError:
+            return
+        conn = sqlite3.connect(os.path.join(backup_path_var.get(), 'Manifest.db'))
+        cur = conn.cursor()
+        cur.execute("SELECT fileID FROM Files WHERE domain=? AND relativePath=?", (domain, rel))
+        row = cur.fetchone(); conn.close()
+        if not row:
+            return
+        real_path = os.path.join(backup_path_var.get(), row[0][:2], row[0])
+
+        # ───────── 이미지 ──────────────────────────────────────────
+        if ext in IMG_EXTS:
+            try:
+                if ext == 'aae':
+                    # 1) 같은 이름 JPG/HEIC 찾기
+                    base = real_path.rsplit('.', 1)[0]
+                    for cand in (base + '.JPG', base + '.jpg', base + '.HEIC', base + '.heic'):
+                        if os.path.exists(cand):
+                            img = load_image(cand, cand.split('.')[-1].lower())
+                            break
+                    else:
+                        # 2) AAE XML 내부 adjustmentBaseImage 찾기
+                        try:
+                            root = ET.parse(real_path).getroot()
+                            base_name = root.find('.//adjustmentBaseImage').text
+                            cand = os.path.join(os.path.dirname(real_path), base_name)
+                            img = load_image(cand, cand.split('.')[-1].lower())
+                        except Exception:
+                            raise FileNotFoundError("No original AAE image.")
+                else:
+                    img = load_image(real_path, ext)
+
+                w = file_list_widgets['preview_label'].winfo_width()  or 400
+                h = file_list_widgets['preview_label'].winfo_height() or 300
+                img.thumbnail((w, h))
+                tk_img = ImageTk.PhotoImage(img)
+                file_list_widgets['preview_label'].config(image=tk_img, text='')
+                file_list_widgets['preview_label'].image = tk_img
+            except Exception as e:
+                file_list_widgets['preview_label'].config(text=f"(Failed to open image.)\n{e}", image='')
+
+        # ───────── 동영상 ──────────────────────────────────────────
+        else:
+            cap = cv2.VideoCapture(real_path)
+            if not cap.isOpened():
+                file_list_widgets['preview_label'].config(text="(Failed to open video.)", image='')
+                return
+            video_state["cap"] = cap
+            lbl = file_list_widgets['preview_label']; lbl.config(text='', image='')
+
+            def show_frame():
+                ret, frame = cap.read()
+                if not ret:
+                    stop_video(); return
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(frame)
+                w = lbl.winfo_width() or 400; h = lbl.winfo_height() or 300
+                img.thumbnail((w, h))
+                tk_img = ImageTk.PhotoImage(img)
+                lbl.config(image=tk_img); lbl.image = tk_img
+                video_state["job"] = lbl.after(33, show_frame)
+
+            show_frame()
 
     # ==== 이벤트 연결 ====
     browse_button.configure(

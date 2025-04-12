@@ -1,4 +1,10 @@
+tk
 pillow
+rawpy
+numpy
+imageio
+pillow-heif
+opencv-python
+imageio-ffmpeg
 matplotlib
 pycrypto
-tk
