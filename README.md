@@ -30,7 +30,7 @@ This tool supports analysis of the following iOS artifacts:
 
 ---
 
-## 🚀 How to Use
+## How to Use
 
 1. Clone this repository or download the EXE file from the Releases section.
 2. To run the Python version locally:
@@ -38,14 +38,12 @@ This tool supports analysis of the following iOS artifacts:
 ```bash
 python.exe main.py
 ```
-![스크린샷 2025-04-12 003455](https://github.com/user-attachments/assets/a389bb87-42b7-44fa-b9f6-a43ee4a1915a)
-
 
 3. Make sure all required modules are installed (see below).
 
 ---
 
-## 📦 Requirements
+## Requirements
 
 Install dependencies using `pip`:
 

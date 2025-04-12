@@ -204,7 +204,7 @@ def display_sms(parent_frame, backup_path):
         if message["is_from_me"]:
             align_frame = ttk.Frame(bubble_frame)
             align_frame.pack(side="right", anchor="e")
-            bubble_color = "#DCF8C6"  # 발신 메시지 색상
+            bubble_color = "#88B6FF"  # 발신 메시지 색상
         else:
             align_frame = ttk.Frame(bubble_frame)
             align_frame.pack(side="left", anchor="w")

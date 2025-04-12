@@ -5,19 +5,19 @@ from tkinter import ttk
 def apply_styles(root):
     # 테마 색상 정의
     colors = {
-        'primary': '#2962ff',         # 파란색 계열 주요 색상
-        'primary_light': '#768fff',   # 밝은 파란색
-        'primary_dark': '#0039cb',    # 진한 파란색
-        'accent': '#00b0ff',          # 액센트 색상 (하이라이트)
-        'success': '#00c853',         # 성공 상태 색상
-        'warning': '#ffd600',         # 경고 상태 색상
-        'error': '#ff3d00',           # 오류 상태 색상
-        'bg_light': '#ffffff',        # 밝은 배경
-        'bg_medium': '#f5f7fa',       # 중간 톤 배경
-        'bg_dark': '#e1e5eb',         # 어두운 배경
-        'text_primary': '#24292e',    # 주요 텍스트 색상
-        'text_secondary': '#6a737d',  # 부가 텍스트 색상
-        'border': '#dfe2e5'           # 테두리 색상
+        'primary': '#5794FF',         # 선택
+        'primary_light': '#88B6FF',   # 기본
+        'primary_dark': '#0039cb',    
+        'accent': '#00b0ff',          
+        'success': '#00c853',         
+        'warning': '#ffd600',         
+        'error': '#ff3d00',           
+        'bg_light': '#ffffff',        
+        'bg_medium': '#f5f7fa',       
+        'bg_dark': '#e1e5eb',         
+        'text_primary': '#24292e',    
+        'text_secondary': '#6a737d',  
+        'border': '#dfe2e5'           
     }
     
     # 스타일 설정
@@ -33,11 +33,13 @@ def apply_styles(root):
     define_input_styles(style, colors)
     define_list_styles(style, colors)
     define_panel_styles(style, colors)
+    define_notebook_styles(style, colors)
+    define_tab_styles(style, colors)  # 새 탭 배경 스타일 추가
     
     return colors
 
 def define_base_styles(style, colors):
-    # 프레임
+    # 모든 TFrame의 기본 배경을 그대로 사용하지만, 필요시 하위 스타일에서 덮어씀
     style.configure("TFrame", background=colors['bg_light'])
     
     # 레이블
@@ -59,7 +61,6 @@ def define_base_styles(style, colors):
                    font=("Arial", 12, "bold"))
 
 def define_button_styles(style, colors):
-    # 버튼 - 기본
     style.configure("TButton", 
                    background=colors['bg_medium'],
                    foreground=colors['text_primary'],
@@ -74,27 +75,24 @@ def define_button_styles(style, colors):
                          ("pressed", colors['bg_dark'])],
              relief=[("pressed", "flat")])
     
-    # 버튼 - 강조(액센트) 스타일
     style.configure("Accent.TButton", 
-                   background=colors['primary'],
+                   background=colors['primary_light'],
                    foreground='white',
                    padding=6,
                    font=("Arial", 10, "bold"))
     style.map("Accent.TButton",
-             background=[("active", colors['primary_light']), 
+             background=[("active", colors['primary']), 
                          ("pressed", colors['primary_dark'])],
              foreground=[("active", "white"), 
                          ("pressed", "white")])
 
 def define_input_styles(style, colors):
-    # 체크버튼
     style.configure("TCheckbutton", 
                    background=colors['bg_light'], 
                    foreground=colors['text_primary'],
                    focusthickness=0,
                    font=("Arial", 10))
     
-    # 입력 필드
     style.configure("TEntry", 
                    background=colors['bg_light'],
                    foreground=colors['text_primary'],
@@ -105,10 +103,9 @@ def define_input_styles(style, colors):
                    relief="solid")
     style.map("TEntry",
              bordercolor=[("focus", colors['primary'])],
-             foreground=[("disabled", "#999999")],         # 입력창 비활성 시 텍스트 색
-             fieldbackground=[("disabled", "#eeeeee")])    # 입력창 비활성 시 배경 색
-
-    # 콤보박스
+             foreground=[("disabled", "#999999")],
+             fieldbackground=[("disabled", "#eeeeee")])
+    
     style.configure("TCombobox", 
                    background=colors['bg_light'],
                    foreground=colors['text_primary'],
@@ -119,7 +116,6 @@ def define_input_styles(style, colors):
              background=[("readonly", colors['bg_medium'])])
 
 def define_list_styles(style, colors):
-    # 트리뷰
     style.configure("Treeview", 
                    background=colors['bg_light'],
                    foreground=colors['text_primary'],
@@ -131,7 +127,6 @@ def define_list_styles(style, colors):
              background=[("selected", colors['primary_light'])],
              foreground=[("selected", colors['bg_light'])])
     
-    # 트리뷰 헤더
     style.configure("Treeview.Heading", 
                    background=colors['bg_medium'],
                    foreground=colors['text_primary'],
@@ -140,7 +135,6 @@ def define_list_styles(style, colors):
     style.map("Treeview.Heading",
              background=[("active", colors['bg_dark'])])
     
-    # 스크롤바
     style.configure("TScrollbar", 
                    background=colors['bg_medium'],
                    borderwidth=0,
@@ -152,9 +146,9 @@ def define_list_styles(style, colors):
                         ("pressed", colors['primary_light'])])
 
 def define_panel_styles(style, colors):
-    # 패널 프레임 (카드 모양)
+    # 카드 프레임 (모든 박스의 테두리 및 배경 색상 변경)
     style.configure("Card.TFrame", 
-                   background=colors['bg_light'],
+                   background=colors['bg_light'],  # "#768fff"
                    relief="ridge",
                    borderwidth=1)
     
@@ -163,6 +157,16 @@ def define_panel_styles(style, colors):
                    background=colors['bg_medium'],
                    relief="flat")
     
-    # 구분선
     style.configure("TSeparator", 
                    background=colors['border'])
+
+def define_notebook_styles(style, colors):
+    # Notebook 및 탭의 배경을 변경 (테마에 따라 반영되지 않을 수 있음)
+    style.configure("TNotebook", background=colors['bg_light'])
+    style.configure("TNotebook.Tab", background=colors['bg_light'], foreground=colors['text_primary'])
+    style.map("TNotebook.Tab", background=[("selected", colors['primary_light']), 
+                                             ("active", colors['primary'])])
+
+def define_tab_styles(style, colors):
+    # Evidence, Artifact Analysis 등 탭 내에 사용하는 프레임 스타일 (배경을 "#768fff"로)
+    style.configure("Tab.TFrame", background=colors['bg_light'])
