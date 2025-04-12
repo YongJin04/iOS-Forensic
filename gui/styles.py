@@ -104,8 +104,10 @@ def define_input_styles(style, colors):
                    padding=8,
                    relief="solid")
     style.map("TEntry",
-             bordercolor=[("focus", colors['primary'])])
-    
+             bordercolor=[("focus", colors['primary'])],
+             foreground=[("disabled", "#999999")],         # 입력창 비활성 시 텍스트 색
+             fieldbackground=[("disabled", "#eeeeee")])    # 입력창 비활성 시 배경 색
+
     # 콤보박스
     style.configure("TCombobox", 
                    background=colors['bg_light'],

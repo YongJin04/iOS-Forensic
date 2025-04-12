@@ -19,20 +19,9 @@ def create_backup_tree_frame(parent,colors):
     )
     backup_tree.pack(side="left", fill="both", expand=True)
 
-    # 트리뷰 컬럼 설정
-    #backup_tree["columns"] = ("size", "date", "type")
-    #backup_tree.column("#0", width=250, minwidth=180)
-    #backup_tree.column("size", width=80, minwidth=50, anchor="e")
-    #backup_tree.column("date", width=120, minwidth=80, anchor="center")
-    #backup_tree.column("type", width=0, stretch=False)  # 숨겨진 타입 컬럼
-
     # 트리뷰 헤더 설정
-    backup_tree.heading("#0", text="파일/폴더", anchor="w")
-    #backup_tree.heading("size", text="크기", anchor="e")
-    #backup_tree.heading("date", text="날짜", anchor="center")
+    backup_tree.heading("#0", text="Directory Tree", anchor="w")
 
-    # 이미지 로드
-# 이미지 로드 및 크기 조정
     folder_icon = tk.PhotoImage(file="gui/icon/folder.png").subsample(30, 30) 
     file_icon = tk.PhotoImage(file="gui/icon/file.png").subsample(30,30)  
     image_icon = tk.PhotoImage(file="gui/icon/picture.png").subsample(30, 30)   

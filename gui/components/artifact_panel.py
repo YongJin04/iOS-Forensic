@@ -6,53 +6,50 @@ from gui.components.display_message import *
 from gui.components.display_contacts import *
 from gui.components.display_photos_media import *
 from gui.components.display_call_history import *
-from gui.components.display_sms import *  # SMS 표시 모듈 추가
+from gui.components.display_sms import *  # Added SMS display module
 
 from backup_analyzer.build_tree import *
 
 def create_artifact_analysis_options(parent, backup_path_var, colors):
-    """아티팩트 분석 옵션을 생성합니다."""
+    """Create artifact analysis options."""
     main_frame = ttk.Frame(parent)
     main_frame.pack(fill="both", expand=True)
     
-    # 왼쪽 사이드바 - 아티팩트 카테고리
+    # Left sidebar - artifact category
     sidebar = ttk.Frame(main_frame, style="Sidebar.TFrame", padding=10)
     sidebar.pack(side="left", fill="y", padx=(0, 10))
     
-    # 카테고리 제목
-    ttk.Label(sidebar, text="아티팩트 카테고리", style="SidebarHeader.TLabel").pack(anchor="w", pady=(0, 10))
+    # Category title
+    ttk.Label(sidebar, text="Artifact Categories", style="SidebarHeader.TLabel").pack(anchor="w", pady=(0, 10))
     
-    # 오른쪽 콘텐츠 영역 생성 (여기서 미리 생성)
+    # Create right content area (pre-created here)
     content_frame = ttk.Frame(main_frame, style="Content.TFrame", padding=10)
     content_frame.pack(side="right", fill="both", expand=True)
 
-    
-
-    
-    # 카테고리 버튼 생성
+    # Create category buttons
     categories = [
-        {"name": "디바이스 정보", "icon": "📱", "command": lambda: display_device_info(content_frame, backup_path_var.get())},
-        {"name": "브라우저", "icon": "🌐", "command": lambda: display_browser(content_frame, backup_path_var.get())},
-        {"name": "카카오톡", "icon": "💬", "command": lambda: display_messages(content_frame, backup_path_var.get())},
-        {"name": "연락처", "icon": "📗", "command": lambda: display_contacts(content_frame, backup_path_var.get())},
-        {"name": "통화 기록", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},  # 새로운 카테고리 추가
-        {"name": "SMS", "icon": "✉️", "command": lambda: display_sms(content_frame, backup_path_var.get())},  # SMS 카테고리 추가
-        {"name": "사진 및 미디어", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
+        {"name": "Device Info", "icon": "📱", "command": lambda: display_device_info(content_frame, backup_path_var.get())},
+        {"name": "Browser", "icon": "🌐", "command": lambda: display_browser(content_frame, backup_path_var.get())},
+        {"name": "KakaoTalk", "icon": "💬", "command": lambda: display_messages(content_frame, backup_path_var.get())},
+        {"name": "Contacts", "icon": "📗", "command": lambda: display_contacts(content_frame, backup_path_var.get())},
+        {"name": "Call History", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},  # Added new category
+        {"name": "SMS", "icon": "✉️", "command": lambda: display_sms(content_frame, backup_path_var.get())},  # Added SMS category
+        {"name": "Photos & Media", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
     ]
     
     category_buttons = []
     selected_category = tk.StringVar()
     
-    # 버튼 생성 함수
+    # Button creation function
     def create_category_button(category, index):
         btn_frame = ttk.Frame(sidebar, style="SidebarItem.TFrame", padding=5)
         btn_frame.pack(fill="x", pady=2)
         
-        # 선택 표시기
+        # Selection indicator
         indicator = ttk.Frame(btn_frame, width=3, style="Indicator.TFrame")
         indicator.pack(side="left", fill="y", padx=(0, 5))
         
-        # 아이콘과 이름이 있는 버튼
+        # Button with icon and name
         btn = ttk.Button(
             btn_frame,
             text=f"{category['icon']} {category['name']}",
@@ -62,10 +59,10 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
         btn.pack(fill="x", expand=True)
         return {"button": btn, "indicator": indicator, "frame": btn_frame}
     
-    # 카테고리 활성화 함수
+    # Category activation function
     def activate_category(index, category):
         selected_category.set(category["name"])
-        # 모든 버튼 비활성화 스타일 적용
+        # Apply inactive style to all buttons
         for i, btn_data in enumerate(category_buttons):
             if i == index:
                 btn_data["frame"].configure(style="SidebarItemActive.TFrame")
@@ -74,16 +71,16 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
                 btn_data["frame"].configure(style="SidebarItem.TFrame")
                 btn_data["indicator"].configure(style="Indicator.TFrame")
         
-        # 카테고리에 맞는 콘텐츠 표시
+        # Display content corresponding to category
         if category["command"]:
-            category["command"]()  # 선택한 카테고리의 함수 실행
+            category["command"]()  # Execute function for selected category
     
-    # 카테고리 버튼 생성
+    # Create category buttons
     for i, category in enumerate(categories):
         button_data = create_category_button(category, i)
         category_buttons.append(button_data)
     
-    # 시작 페이지 표시
+    # Show initial page
     show_artifact_welcome_page(content_frame)
     
     return {
@@ -94,28 +91,28 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
     }
 
 def show_artifact_welcome_page(content_frame):
-    """아티팩트 분석 시작 페이지를 표시합니다."""
-    # 기존 위젯 삭제
+    """Display the artifact analysis start page."""
+    # Clear existing widgets
     for widget in content_frame.winfo_children():
         widget.destroy()
     
-    # 환영 메시지 및 안내 표시
+    # Display welcome message and guide
     welcome_frame = ttk.Frame(content_frame, style="Card.TFrame", padding=20)
     welcome_frame.pack(fill="both", expand=True, padx=10, pady=10)
     
-    ttk.Label(welcome_frame, text="iOS 백업 아티팩트 분석", style="CardHeader.TLabel").pack(pady=(0, 20))
-    ttk.Label(welcome_frame, text="왼쪽의 아티팩트 카테고리를 선택하여 분석을 시작하세요.", 
+    ttk.Label(welcome_frame, text="iOS Backup Artifact Analysis", style="CardHeader.TLabel").pack(pady=(0, 20))
+    ttk.Label(welcome_frame, text="Select an artifact category on the left to begin analysis.", 
               style="CardText.TLabel", wraplength=400).pack(pady=10)
     
-    # 아이콘 설명
+    # Icon descriptions
     icon_frame = ttk.Frame(welcome_frame)
     icon_frame.pack(pady=20)
     
     icons = [
-        {"icon": "📱", "text": "디바이스 정보"},
-        {"icon": "💬", "text": "카카오톡"},
-        {"icon": "👤", "text": "연락처"},
-        {"icon": "🖼️", "text": "미디어"}
+        {"icon": "📱", "text": "Device Info"},
+        {"icon": "💬", "text": "KakaoTalk"},
+        {"icon": "👤", "text": "Contacts"},
+        {"icon": "🖼️", "text": "Media"}
     ]
     
     for icon_data in icons:
