@@ -12,7 +12,7 @@ This tool supports analysis of the following iOS artifacts:
 - Callhistory
 - SMS / iMessage
 - Notes
-- Photos & Media Gallery
+- Gallery
 - Calendar
 
 ### Messenger Applications
@@ -28,7 +28,9 @@ This tool supports analysis of the following iOS artifacts:
 ### User Activity Artifacts
 - GPS Locations
 - Bluetooth Devices
-- Wi-Fi History
+- Wi-Fi / MAC Address
+- SIM Card
+- User Account
 
 ---
 
