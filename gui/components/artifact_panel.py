@@ -6,8 +6,8 @@ from gui.components.display_message import *
 from gui.components.display_contacts import *
 from gui.components.display_photos_media import *
 from gui.components.display_call_history import *
-from gui.components.display_sms import *  # Added SMS display module
-
+from gui.components.display_sms import *  # Added SMS display module -Liqueur
+from gui.components.display_calendar import *  # Added Calendar display module -Liqueur
 from backup_analyzer.build_tree import *
 
 def create_artifact_analysis_options(parent, backup_path_var, colors):
@@ -35,6 +35,7 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
         {"name": "Call History", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},  # Added new category
         {"name": "SMS", "icon": "✉️", "command": lambda: display_sms(content_frame, backup_path_var.get())},  # Added SMS category
         {"name": "Photos & Media", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
+        {"name": "Calendar", "icon": "📅", "command": lambda: display_calendar(content_frame, backup_path_var.get())},  # Added Calrendar category
     ]
     
     category_buttons = []
