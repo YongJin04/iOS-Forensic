@@ -9,6 +9,7 @@ from gui.components.display_call_history import *
 from gui.components.display_sms import *
 from gui.components.display_bluetooth import *
 from gui.components.display_user_account import *
+from gui.components.display_wifi import *
 
 from backup_analyzer.build_tree import *
 
@@ -32,6 +33,7 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
     categories = [
         {"name": "Device Info", "icon": "📱", "command": lambda: display_device_info(content_frame, backup_path_var.get())},
         {"name": "User Account", "icon": "👤", "command": lambda: display_user_account(content_frame, backup_path_var.get())},
+        {"name": "Wi-Fi", "icon": "📶", "command": lambda: display_wifi(content_frame, backup_path_var.get())},
         {"name": "Browser", "icon": "🌐", "command": lambda: display_browser(content_frame, backup_path_var.get())},
         {"name": "KakaoTalk", "icon": "💬", "command": lambda: display_messages(content_frame, backup_path_var.get())},
         {"name": "Contacts", "icon": "📗", "command": lambda: display_contacts(content_frame, backup_path_var.get())},
