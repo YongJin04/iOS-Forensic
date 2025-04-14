@@ -8,6 +8,8 @@ from gui.components.display_photos_media import *
 from gui.components.display_call_history import *
 from gui.components.display_sms import *  # Added SMS display module -Liqueur
 from gui.components.display_calendar import *  # Added Calendar display module -Liqueur
+from gui.components.display_bluetooth import *
+from gui.components.display_user_account import *
 from backup_analyzer.build_tree import *
 
 def create_artifact_analysis_options(parent, backup_path_var, colors):
@@ -29,6 +31,7 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
     # Create category buttons
     categories = [
         {"name": "Device Info", "icon": "📱", "command": lambda: display_device_info(content_frame, backup_path_var.get())},
+        {"name": "User Account", "icon": "👤", "command": lambda: display_user_account(content_frame, backup_path_var.get())},
         {"name": "Browser", "icon": "🌐", "command": lambda: display_browser(content_frame, backup_path_var.get())},
         {"name": "KakaoTalk", "icon": "💬", "command": lambda: display_messages(content_frame, backup_path_var.get())},
         {"name": "Contacts", "icon": "📗", "command": lambda: display_contacts(content_frame, backup_path_var.get())},
@@ -36,6 +39,8 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
         {"name": "SMS", "icon": "✉️", "command": lambda: display_sms(content_frame, backup_path_var.get())},  # Added SMS category
         {"name": "Photos & Media", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
         {"name": "Calendar", "icon": "📅", "command": lambda: display_calendar(content_frame, backup_path_var.get())},  # Added Calrendar category
+        {"name": "Gallery", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
+        {"name": "Bluetooth", "icon": "🔵", "command": lambda: display_bluetooth(content_frame, backup_path_var.get())},
     ]
     
     category_buttons = []
@@ -113,7 +118,7 @@ def show_artifact_welcome_page(content_frame):
         {"icon": "📱", "text": "Device Info"},
         {"icon": "💬", "text": "KakaoTalk"},
         {"icon": "👤", "text": "Contacts"},
-        {"icon": "🖼️", "text": "Media"}
+        {"icon": "🖼️", "text": "Gallery"}
     ]
     
     for icon_data in icons:

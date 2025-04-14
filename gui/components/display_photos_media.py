@@ -1,245 +1,259 @@
-from tkinter import ttk, filedialog
+from __future__ import annotations
+"""display_photos_media.py – ultra‑robust thumbnail gallery
+
+*   **HEIC / DNG** stills are decoded via *pillow‑heif* or *rawpy*.
+*   **MOV / MP4** clips always yield a thumbnail through a 3‑tier fallback:
+    1. OpenCV → first frame (preview.py logic)
+    2. ffmpeg → JPEG piped to memory
+    3. ffmpeg → JPEG to temp file
+*   Thumbnails are now **centered** inside a fixed‑size square so that
+    small images no longer hug the top‑left corner.
+"""
+
+import io
 import os
 import sqlite3
-import shutil
+import subprocess
+import tempfile
 import threading
+from pathlib import Path
+from typing import List, Tuple
+
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+
+import cv2  # runtime dep
+import rawpy  # runtime dep
+import imageio_ffmpeg  # runtime dep – bundles a static ffmpeg binary
 from PIL import Image, ImageTk
-from datetime import datetime
 
-def display_photos_media(content_frame, backup_path):
-    """백업 데이터에서 사진 및 미디어 파일을 분석하고 표시합니다."""
-    # 기존 위젯 삭제
-    for widget in content_frame.winfo_children():
-        widget.destroy()
-    
-    # 헤더 추가
-    header_frame = ttk.Frame(content_frame)
-    header_frame.pack(fill="x", pady=(0, 10))
-    
-    ttk.Label(header_frame, text="🖼️ 사진 및 미디어", style="ContentHeader.TLabel").pack(side="left")
-    ttk.Separator(content_frame, orient="horizontal").pack(fill="x", pady=(0, 15))
-    
-    # 로딩 표시
-    loading_frame = ttk.Frame(content_frame)
-    loading_frame.pack(fill="both", expand=True)
-    ttk.Label(loading_frame, text="미디어 파일을 분석 중입니다...", style="InfoValue.TLabel").pack(pady=20)
-    progress = ttk.Progressbar(loading_frame, mode="indeterminate")
-    progress.pack(fill="x", padx=50, pady=10)
-    progress.start()
-    
-    # 백그라운드 스레드에서 미디어 분석 실행
-    threading.Thread(target=lambda: analyze_media_files(content_frame, loading_frame, backup_path), daemon=True).start()
+os.environ["IMAGEIO_FFMPEG_EXE"] = imageio_ffmpeg.get_ffmpeg_exe()
 
-def analyze_media_files(content_frame, loading_frame, backup_path):
-    """백업에서 미디어 파일을 분석하고 결과를 표시합니다."""
-    try:
-        # 미디어 정보 수집
-        media_info = extract_media_info(backup_path)
-        
-        # UI 스레드에서 결과 표시
-        content_frame.after(0, lambda: display_media_results(content_frame, loading_frame, media_info, backup_path))
-    except Exception as e:
-        # 오류 발생 시 오류 메시지 표시
-        content_frame.after(0, lambda: display_error_message(content_frame, loading_frame, f"미디어 분석 중 오류가 발생했습니다: {str(e)}"))
+try:
+    from pillow_heif import register_heif_opener  # type: ignore
+    register_heif_opener()
+except ModuleNotFoundError:
+    pass
 
-def extract_media_info(backup_path):
-    """백업 데이터에서 미디어 정보를 추출합니다."""
-    # 예시 결과 데이터 (실제 구현에서는 백업 파일에서 데이터 추출)
-    media_info = {
-        "total_photos": 0,
-        "total_videos": 0,
-        "recent_media": [],
-        "media_by_year": {},
-        "media_by_month": {},
-        "largest_files": []
-    }
-    
-    # Photos.sqlite 또는 관련 데이터베이스 파일 찾기
-    photos_db_path = find_database_file(backup_path, "Photos.sqlite")
-    if photos_db_path:
-        # 데이터베이스에서 미디어 정보 추출
-        conn = sqlite3.connect(photos_db_path)
-        cursor = conn.cursor()
-        
-        # 총 사진 수 (예시 쿼리, 실제 스키마에 맞게 수정 필요)
+COLS, ROWS = 6, 4
+PAGE_SIZE = COLS * ROWS
+THUMB_SIDE = 120
+
+IMG_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".dng"}
+VID_EXTS = {".mov", ".mp4"}
+
+
+def display_photos_media(parent: tk.Widget, backup_path: str) -> None:
+    for w in parent.winfo_children():
+        w.destroy()
+
+    ttk.Label(parent, text="🖼️ Camera Roll Media", style="ContentHeader.TLabel").pack(anchor="w", pady=(0, 6))
+    ttk.Separator(parent, orient="horizontal").pack(fill="x", pady=(0, 10))
+
+    canvas_frame = ttk.Frame(parent)
+    canvas_frame.pack(fill="both", expand=True)
+
+    canvas = tk.Canvas(canvas_frame, highlightthickness=0, bg="white")
+    vsb = ttk.Scrollbar(canvas_frame, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=vsb.set)
+    canvas.pack(side="left", fill="both", expand=True)
+    vsb.pack(side="right", fill="y")
+
+    grid_frame = tk.Frame(canvas, bg="white")
+    canvas.create_window((0, 0), window=grid_frame, anchor="nw")
+    grid_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+    nav_frame = ttk.Frame(parent)
+    nav_frame.pack(fill="x", pady=(6, 4))
+    nav_prev = ttk.Button(nav_frame, text="← Previous")
+    nav_label = ttk.Label(nav_frame, text="0 / 0", style="InfoLabel.TLabel")
+    nav_next = ttk.Button(nav_frame, text="Next →")
+    nav_prev.pack(side="left", padx=10)
+    nav_label.pack(side="left", expand=True)
+    nav_next.pack(side="right", padx=10)
+
+    state: dict = {"items": [], "page": 0, "thumbs": {}}
+
+    # ─────────────────────────────────────────────────────────────
+    # Helpers for media‑type detection
+    # ─────────────────────────────────────────────────────────────
+    def _is_video(path: Path, fname: str) -> bool:
+        ext_path = path.suffix.lower()
+        ext_name = Path(fname).suffix.lower()
+        return ext_path in VID_EXTS or ext_name in VID_EXTS
+
+    def _is_image(path: Path, fname: str) -> bool:
+        ext_path = path.suffix.lower()
+        ext_name = Path(fname).suffix.lower()
+        return ext_path in IMG_EXTS or ext_name in IMG_EXTS
+
+    # ─────────────────────────────────────────────────────────────
+    def _scan():
+        state["items"] = list(_enumerate_media_files(Path(backup_path)))
+        parent.after(0, _render_page)
+
+    threading.Thread(target=_scan, daemon=True).start()
+
+    # ─────────────────────────────────────────────────────────────
+    # Image / video decoding
+    # ─────────────────────────────────────────────────────────────
+    def _load_image(path: Path) -> Image.Image:
+        ext = path.suffix.lower()
+        if ext == ".dng":
+            with rawpy.imread(str(path)) as raw:
+                return Image.fromarray(raw.postprocess())
+        if ext == ".heic":
+            if "heif" not in Image.OPEN:
+                try:
+                    from pillow_heif import register_heif_opener  # type: ignore
+                    register_heif_opener()
+                except ModuleNotFoundError:
+                    pass
+        return Image.open(path)
+
+    def _video_thumb_preview_style(path: Path) -> Image.Image | None:
+        cap = cv2.VideoCapture(str(path))
+        if not cap.isOpened():
+            return None
+        ret, frame = cap.read()
+        cap.release()
+        if not ret or frame is None:
+            return None
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        return Image.fromarray(frame)
+
+    def _video_thumb_pipe(path: Path) -> Image.Image | None:
+        ffmpeg = os.environ["IMAGEIO_FFMPEG_EXE"]
+        cmd = [ffmpeg, "-loglevel", "error", "-nostdin", "-ss", "0.5", "-i", str(path), "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "pipe:1"]
         try:
-            cursor.execute("SELECT COUNT(*) FROM ZASSET WHERE ZKIND = 0")
-            media_info["total_photos"] = cursor.fetchone()[0]
-            
-            # 총 비디오 수
-            cursor.execute("SELECT COUNT(*) FROM ZASSET WHERE ZKIND = 1")
-            media_info["total_videos"] = cursor.fetchone()[0]
-            
-            # 최근 미디어 (최대 10개)
-            cursor.execute("""
-                SELECT ZASSET.Z_PK, ZFILENAME, ZDATECREATED, ZKIND
-                FROM ZASSET
-                ORDER BY ZDATECREATED DESC
-                LIMIT 10
-            """)
-            for row in cursor.fetchall():
-                media_id, filename, created_date, kind = row
-                media_type = "사진" if kind == 0 else "비디오"
-                
-                # Unix 타임스탬프를 datetime으로 변환 (iOS의 참조 날짜는 2001-01-01)
-                if created_date:
-                    ref_date = datetime(2001, 1, 1)
-                    created_datetime = ref_date + datetime.timedelta(seconds=created_date)
-                    date_str = created_datetime.strftime("%Y-%m-%d %H:%M")
-                else:
-                    date_str = "알 수 없음"
-                
-                media_info["recent_media"].append({
-                    "id": media_id,
-                    "filename": filename,
-                    "date": date_str,
-                    "type": media_type
-                })
-        except Exception as e:
-            print(f"미디어 데이터 추출 중 오류: {str(e)}")
-        
-        conn.close()
-    
-    # 일반 파일 시스템에서 미디어 파일 검색 (Media 폴더 등)
-    media_folders = find_media_folders(backup_path)
-    for folder in media_folders:
-        for root, _, files in os.walk(folder):
-            for file in files:
-                if file.lower().endswith(('.jpg', '.jpeg', '.png', '.heic')):
-                    media_info["total_photos"] += 1
-                elif file.lower().endswith(('.mp4', '.mov', '.m4v')):
-                    media_info["total_videos"] += 1
-    
-    return media_info
+            with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc:
+                data = proc.stdout.read()
+            if data:
+                return Image.open(io.BytesIO(data))
+        except Exception:
+            return None
+        return None
 
-def find_database_file(backup_path, db_name):
-    """백업 폴더에서 지정된 데이터베이스 파일을 찾습니다."""
-    for root, _, files in os.walk(backup_path):
-        for file in files:
-            if file == db_name:
-                return os.path.join(root, file)
-    return None
+    def _video_thumb_tempfile(path: Path) -> Image.Image | None:
+        ffmpeg = os.environ["IMAGEIO_FFMPEG_EXE"]
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp_name = tmp.name
+        cmd = [ffmpeg, "-loglevel", "error", "-nostdin", "-ss", "0.5", "-i", str(path), "-frames:v", "1", "-q:v", "2", tmp_name]
+        if subprocess.call(cmd) == 0 and Path(tmp_name).exists():
+            try:
+                img = Image.open(tmp_name)
+                img.load()
+                return img
+            finally:
+                os.unlink(tmp_name)
+        else:
+            os.unlink(tmp_name)
+        return None
 
-def find_media_folders(backup_path):
-    """백업 폴더에서 미디어 관련 폴더를 찾습니다."""
-    media_folders = []
-    for root, dirs, _ in os.walk(backup_path):
-        for dir_name in dirs:
-            if "Media" in dir_name or "Photo" in dir_name or "Camera" in dir_name:
-                media_folders.append(os.path.join(root, dir_name))
-    return media_folders
+    def _video_thumbnail(path: Path) -> Image.Image:
+        for extractor in (_video_thumb_preview_style, _video_thumb_pipe, _video_thumb_tempfile):
+            try:
+                img = extractor(path)
+                if img is not None:
+                    break
+            except Exception:
+                continue
+        else:
+            img = Image.new("RGB", (THUMB_SIDE, THUMB_SIDE), "black")
+        img.thumbnail((THUMB_SIDE, THUMB_SIDE))
+        return img
 
-def display_media_results(content_frame, loading_frame, media_info, backup_path):
-    """미디어 분석 결과를 UI에 표시합니다."""
-    # 로딩 프레임 제거
-    loading_frame.destroy()
-    
-    # 미디어 통계 정보 카드
-    stats_card = ttk.Frame(content_frame, style="Card.TFrame", padding=15)
-    stats_card.pack(fill="x", padx=5, pady=5)
-    
-    ttk.Label(stats_card, text="미디어 통계", style="CardSectionHeader.TLabel").pack(anchor="w", pady=(0, 10))
-    
-    stats_grid = ttk.Frame(stats_card)
-    stats_grid.pack(fill="x")
-    
-    # 통계 정보 표시
-    stats_items = [
-        {"label": "총 사진 수", "value": f"{media_info['total_photos']:,}개"},
-        {"label": "총 비디오 수", "value": f"{media_info['total_videos']:,}개"},
-        {"label": "총 미디어 파일", "value": f"{media_info['total_photos'] + media_info['total_videos']:,}개"},
-    ]
-    
-    for i, item in enumerate(stats_items):
-        col = i % 3
-        
-        # 레이블 + 값 프레임
-        item_frame = ttk.Frame(stats_grid)
-        item_frame.grid(row=0, column=col, sticky="w", padx=10, pady=5)
-        
-        ttk.Label(item_frame, text=item["label"] + ":", style="InfoLabel.TLabel").pack(anchor="w")
-        ttk.Label(item_frame, text=item["value"], style="InfoValue.TLabel").pack(anchor="w")
-    
-    # 최근 미디어 파일 섹션
-    if media_info["recent_media"]:
-        recent_card = ttk.Frame(content_frame, style="Card.TFrame", padding=15)
-        recent_card.pack(fill="both", expand=True, padx=5, pady=5)
-        
-        ttk.Label(recent_card, text="최근 미디어 파일", style="CardSectionHeader.TLabel").pack(anchor="w", pady=(0, 10))
-        
-        # 섬네일과 정보를 표시할 그리드
-        media_grid = ttk.Frame(recent_card)
-        media_grid.pack(fill="both", expand=True)
-        
-        # 미디어 파일 별로 섬네일과 정보 표시 (최대 5개)
-        for i, media in enumerate(media_info["recent_media"][:5]):
-            # 미디어 항목 프레임
-            media_frame = ttk.Frame(media_grid, style="MediaItem.TFrame", padding=10)
-            media_frame.grid(row=i, column=0, sticky="ew", pady=5)
-            
-            # 썸네일 영역 (실제 구현에서는 이미지 로드)
-            thumb_frame = ttk.Frame(media_frame, width=80, height=80, style="Thumbnail.TFrame")
-            thumb_frame.pack(side="left", padx=(0, 10))
-            thumb_frame.pack_propagate(False)
-            
-            # 썸네일 영역에 파일 타입 아이콘 표시
-            icon_text = "🖼️" if media["type"] == "사진" else "🎬"
-            ttk.Label(thumb_frame, text=icon_text, font=("Arial", 24)).pack(expand=True)
-            
-            # 미디어 정보
-            info_frame = ttk.Frame(media_frame)
-            info_frame.pack(side="left", fill="both", expand=True)
-            
-            ttk.Label(info_frame, text=media["filename"], style="MediaTitle.TLabel").pack(anchor="w")
-            ttk.Label(info_frame, text=f"타입: {media['type']} | 날짜: {media['date']}", style="MediaInfo.TLabel").pack(anchor="w", pady=2)
-            
-            # 미디어 추출 버튼
-            extract_btn = ttk.Button(media_frame, text="추출", 
-                                     command=lambda m=media: extract_media_file(backup_path, m))
-            extract_btn.pack(side="right")
-    
-    # 버튼 영역
-    button_frame = ttk.Frame(content_frame)
-    button_frame.pack(fill="x", pady=10)
-    
-    export_btn = ttk.Button(button_frame, text="모든 미디어 내보내기", 
-                           command=lambda: export_all_media(backup_path))
-    export_btn.pack(side="right", padx=5)
+    # ─────────────────────────────────────────────────────────────
+    # Thumbnail cache & builder
+    # ─────────────────────────────────────────────────────────────
+    def _thumb(path: Path, fname: str) -> ImageTk.PhotoImage:
+        cache = state["thumbs"]
+        if path in cache:
+            return cache[path]
+        try:
+            if _is_video(path, fname):
+                img = _video_thumbnail(path)
+            elif _is_image(path, fname):
+                img = _load_image(path)
+                img.thumbnail((THUMB_SIDE, THUMB_SIDE))
+            else:
+                raise ValueError("Unsupported format")
+        except Exception:
+            img = Image.new("RGB", (THUMB_SIDE, THUMB_SIDE), "gray")
+        photo = ImageTk.PhotoImage(img)
+        cache[path] = photo
+        return photo
 
-def extract_media_file(backup_path, media):
-    """선택한 미디어 파일을 추출합니다."""
-    # 파일 저장 대화상자
-    save_path = filedialog.asksaveasfilename(
-        title="미디어 파일 저장",
-        initialfile=media["filename"],
-        defaultextension=".*",
-        filetypes=[("모든 파일", "*.*")]
+    # ─────────────────────────────────────────────────────────────
+    # File save helper
+    # ─────────────────────────────────────────────────────────────
+    def _save_file(src: Path, save_name: str):
+        dest = filedialog.asksaveasfilename(initialfile=save_name)
+        if dest:
+            try:
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with open(src, "rb") as fsrc, open(dest, "wb") as fdst:
+                    fdst.write(fsrc.read())
+            except Exception as e:
+                messagebox.showerror("Save error", str(e))
+
+    # ─────────────────────────────────────────────────────────────
+    def _clear_grid():
+        for child in grid_frame.grid_slaves():
+            child.destroy()
+
+    # ─────────────────────────────────────────────────────────────
+    def _render_page():
+        total_items = len(state["items"])
+        if total_items == 0:
+            nav_label.config(text="0 / 0")
+            return
+        total_pages = (total_items + PAGE_SIZE - 1) // PAGE_SIZE
+        state["page"] = max(0, min(state["page"], total_pages - 1))
+        start = state["page"] * PAGE_SIZE
+        end = min(start + PAGE_SIZE, total_items)
+        _clear_grid()
+        for idx, (p, fname) in enumerate(state["items"][start:end]):
+            r, c = divmod(idx, COLS)
+            cell = tk.Frame(grid_frame, bg="white", padx=2, pady=2)
+            cell.grid(row=r, column=c, padx=4, pady=4, sticky="nw")
+            thumb_box = tk.Frame(cell, width=THUMB_SIDE, height=THUMB_SIDE, bg="white")
+            thumb_box.pack_propagate(False)
+            thumb_box.pack()
+            photo = _thumb(p, fname)
+            lbl = tk.Label(thumb_box, image=photo, bg="white")
+            lbl.image = photo
+            lbl.pack(expand=True)
+            lbl.bind("<Button-3>", lambda e, src=p, name=fname: _save_file(src, name))
+            tk.Label(cell, text=fname, bg="white", wraplength=THUMB_SIDE, justify="center").pack(pady=(2, 0))
+        nav_label.config(text=f"{state['page'] + 1} / {total_pages}")
+        nav_prev.config(state="normal" if state["page"] > 0 else "disabled")
+        nav_next.config(state="normal" if state["page"] < total_pages - 1 else "disabled")
+
+    nav_prev.config(command=lambda: _set_page(state["page"] - 1))
+    nav_next.config(command=lambda: _set_page(state["page"] + 1))
+
+    def _set_page(new_page: int):
+        state["page"] = new_page
+        _render_page()
+
+
+def _enumerate_media_files(backup_root: Path):
+    manifest = backup_root / "Manifest.db"
+    if not manifest.exists():
+        return
+    conn = sqlite3.connect(manifest)
+    cur = conn.cursor()
+    query = (
+        "SELECT fileID, relativePath FROM Files WHERE domain LIKE '%CameraRollDomain%' "
+        "AND relativePath LIKE '%Media/DCIM%' AND ("
+        "relativePath LIKE '%.png'  COLLATE NOCASE OR relativePath LIKE '%.jpg'  COLLATE NOCASE OR "
+        "relativePath LIKE '%.jpeg' COLLATE NOCASE OR relativePath LIKE '%.heic' COLLATE NOCASE OR "
+        "relativePath LIKE '%.dng'  COLLATE NOCASE OR relativePath LIKE '%.mov'  COLLATE NOCASE OR "
+        "relativePath LIKE '%.mp4'  COLLATE NOCASE)"
     )
-    
-    if save_path:
-        # 여기서 실제 파일 추출 로직 구현
-        # 예: 백업에서 원본 파일 경로 찾아 복사
-        pass
-
-def export_all_media(backup_path):
-    """모든 미디어 파일을 내보냅니다."""
-    # 디렉토리 선택 대화상자
-    export_dir = filedialog.askdirectory(title="미디어 내보내기 폴더 선택")
-    
-    if export_dir:
-        # 여기서 실제 모든 파일 내보내기 구현
-        # 진행 상황을 보여주는 대화상자를 표시할 수 있음
-        pass
-
-def display_error_message(content_frame, loading_frame, message):
-    """오류 메시지를 표시합니다."""
-    # 로딩 프레임 제거
-    loading_frame.destroy()
-    
-    # 오류 메시지 프레임
-    error_frame = ttk.Frame(content_frame, style="ErrorCard.TFrame", padding=15)
-    error_frame.pack(fill="both", expand=True, padx=5, pady=5)
-    
-    # 오류 아이콘과 메시지
-    ttk.Label(error_frame, text="⚠️", font=("Arial", 24)).pack(pady=(0, 10))
-    ttk.Label(error_frame, text=message, style="ErrorText.TLabel", wraplength=400).pack()
+    for file_id, rel in cur.execute(query):
+        real_path = backup_root / file_id[:2] / file_id
+        if real_path.exists():
+            yield real_path, Path(rel).name
+    conn.close()
