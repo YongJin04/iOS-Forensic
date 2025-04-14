@@ -33,7 +33,7 @@ def _ensure_icons(master_widget: Widget) -> None:
     _ICON_DICT.update({
         "folder": _icon("folder.png"),
         "file": _icon("file.png"),
-        "image": _icon("picture.png"),
+        "image": _icon("file.png"),
     })
 
 
