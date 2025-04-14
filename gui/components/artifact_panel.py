@@ -6,7 +6,8 @@ from gui.components.display_message import *
 from gui.components.display_contacts import *
 from gui.components.display_photos_media import *
 from gui.components.display_call_history import *
-from gui.components.display_sms import *  # Added SMS display module
+from gui.components.display_sms import *
+from gui.components.display_bluetooth import *
 
 from backup_analyzer.build_tree import *
 
@@ -32,9 +33,10 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
         {"name": "Browser", "icon": "🌐", "command": lambda: display_browser(content_frame, backup_path_var.get())},
         {"name": "KakaoTalk", "icon": "💬", "command": lambda: display_messages(content_frame, backup_path_var.get())},
         {"name": "Contacts", "icon": "📗", "command": lambda: display_contacts(content_frame, backup_path_var.get())},
-        {"name": "Call History", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},  # Added new category
-        {"name": "SMS", "icon": "✉️", "command": lambda: display_sms(content_frame, backup_path_var.get())},  # Added SMS category
+        {"name": "Call History", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},
+        {"name": "SMS", "icon": "✉️", "command": lambda: display_sms(content_frame, backup_path_var.get())},
         {"name": "Gallery", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
+        {"name": "Bluetooth", "icon": "🔵", "command": lambda: display_bluetooth(content_frame, backup_path_var.get())},  # ✅ 추가
     ]
     
     category_buttons = []
