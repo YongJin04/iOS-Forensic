@@ -268,10 +268,18 @@ class ContactAnalyzer:
         
         for contact in self.contacts:
             full_name = f"{contact.last_name} {contact.first_name}".strip().lower()
-            phone = contact.get_phone_number().lower()
+            
+            # 전화번호에서 하이픈(-) 제거
+            raw_phone = contact.get_phone_number().lower().replace("-", "")
+            formatted_phone = contact.get_phone_number().lower() 
+            
             org = contact.organization.lower()
             
-            if (query in full_name or query in phone or query in org):
+            # 검색어가 이름, 원본 전화번호, 하이픈 제거된 전화번호, 또는 조직에 포함되어 있는지 확인
+            if (query in full_name or 
+                query in formatted_phone or 
+                query in raw_phone or 
+                query in org):
                 filtered_contacts.append(contact)
                 
         return filtered_contacts
