@@ -9,9 +9,11 @@ This tool supports analysis of the following iOS artifacts:
 
 ### Default iOS Artifacts
 - Contacts
+- Callhistory
 - SMS / iMessage
 - Notes
 - Photos & Media Gallery
+- Calendar
 
 ### Messenger Applications
 - KakaoTalk
