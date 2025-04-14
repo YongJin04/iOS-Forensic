@@ -34,7 +34,7 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
         {"name": "Contacts", "icon": "📗", "command": lambda: display_contacts(content_frame, backup_path_var.get())},
         {"name": "Call History", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},  # Added new category
         {"name": "SMS", "icon": "✉️", "command": lambda: display_sms(content_frame, backup_path_var.get())},  # Added SMS category
-        {"name": "Photos & Media", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
+        {"name": "Gallery", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
     ]
     
     category_buttons = []
@@ -112,7 +112,7 @@ def show_artifact_welcome_page(content_frame):
         {"icon": "📱", "text": "Device Info"},
         {"icon": "💬", "text": "KakaoTalk"},
         {"icon": "👤", "text": "Contacts"},
-        {"icon": "🖼️", "text": "Media"}
+        {"icon": "🖼️", "text": "Gallery"}
     ]
     
     for icon_data in icons:
