@@ -7,11 +7,10 @@ from gui.components.display_contacts import *
 from gui.components.display_photos_media import *
 from gui.components.display_call_history import *
 from gui.components.display_sms import *  # Added SMS display module -Liqueur
-from gui.components.display_calendar import *  # Added Calendar display module -Liqueur
+from gui.components.display_calendar import *  # Added Calendar display module
 from gui.components.display_bluetooth import *
 from gui.components.display_user_account import *
-from gui.components.display_wifi import *
-
+#from gui.components.display_wifi import *
 from backup_analyzer.build_tree import *
 
 def create_artifact_analysis_options(parent, backup_path_var, colors):

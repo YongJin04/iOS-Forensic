@@ -9,10 +9,6 @@ class BackupPathHelper:
     Manifest.db 파일을 이용하여 백업 파일의 실제 경로를 탐색합니다.
     """
     def __init__(self, backup_path: str):
-        """
-        백업 경로를 초기화합니다.
-        :param backup_path: iOS 백업의 루트 경로
-        """
         self.backup_path = backup_path
 
     def get_file_path_from_manifest(self, relative_path: str) -> str:
@@ -29,7 +25,6 @@ class BackupPathHelper:
             return None
 
         try:
-            # with문을 이용하여 안전하게 SQLite 연결을 열고 종료합니다.
             with sqlite3.connect(manifest_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT fileID FROM Files WHERE relativePath = ?", (relative_path,))
@@ -195,18 +190,14 @@ class CalendarAnalyser:
 
     def get_error_logs(self, event_id: int) -> list:
         """
-        Error 테이블에서 해당 이벤트의 오류 로그를 조회합니다.
+        현재 캘린더 데이터베이스 스키마에 Error 로그 테이블이 없으므로,
+        빈 리스트를 반환하거나 별도의 처리를 진행할 수 있습니다.
         
         :param event_id: 캘린더 항목의 ROWID
-        :return: 오류 로그 목록 (리스트 형태의 dict)
+        :return: 빈 리스트
         """
-        try:
-            query = "SELECT * FROM Error WHERE calendaritem_owner_id = ?"
-            df = pd.read_sql_query(query, self.conn, params=(event_id,))
-            return df.to_dict('records')
-        except Exception as e:
-            print(f"[오류] Error 로그 조회 오류: {e}")
-            return []
+        print("[정보] Error 로그 테이블이 존재하지 않습니다.")
+        return []
 
     def get_event_actions(self, event_id: int) -> list:
         """
@@ -288,10 +279,10 @@ class CalendarAnalyser:
 
     def get_alarms_for_event(self, event_id: int) -> list:
         """
-        Alarm 및 AlarmCache 테이블을 조인하여 이벤트와 연결된 알람 정보를 조회합니다.
-        알람의 trigger_date, trigger_interval, type, disabled, occurrence_date, fire_date 등의 정보를 포함합니다.
+        Alarm 테이블과 AlarmCache 테이블을 조인하여 이벤트와 연결된 알람 정보를 조회합니다.
+        알람의 trigger_date, trigger_interval, type, disabled 및 AlarmCache의 occurrence_date, fire_date를 포함합니다.
         
-        :param event_id: 이벤트의 ROWID
+        :param event_id: 이벤트의 ROWID (AlarmCache.event_id)
         :return: 알람 정보 목록
         """
         if not self.conn and not self.connect_to_db():
@@ -317,8 +308,8 @@ class CalendarAnalyser:
 
     def get_attachments_for_event(self, event_id: int) -> list:
         """
-        Attachment 및 AttachmentFile 테이블을 조인하여 이벤트와 연결된 첨부파일 정보를 조회합니다.
-        파일의 메타데이터(파일 이름, URL, 경로 등)를 반환합니다.
+        Attachment 테이블에서 이벤트와 연결된 첨부파일 정보를 조회합니다.
+        첨부파일의 기본 메타데이터(ROWID, owner_id, external_rep, file_id)를 반환합니다.
         
         :param event_id: Attachment 테이블의 owner_id에 해당하는 이벤트의 ROWID
         :return: 첨부파일 정보 목록
@@ -327,12 +318,10 @@ class CalendarAnalyser:
             return []
         try:
             query = """
-            SELECT af.ROWID as file_rowid, af.external_id, af.url, af.UUID, af.format, af.flags,
-                   af.filename, af.local_path, af.file_size
-            FROM AttachmentFile af
-            JOIN Attachment a ON af.ROWID = a.file_id
-            WHERE a.owner_id = ?
-            ORDER BY af.filename ASC;
+            SELECT ROWID as attachment_id, owner_id, external_rep, file_id
+            FROM Attachment
+            WHERE owner_id = ?
+            ORDER BY attachment_id ASC;
             """
             df = pd.read_sql_query(query, self.conn, params=(event_id,))
             return df.to_dict('records')
