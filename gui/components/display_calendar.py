@@ -827,8 +827,3 @@ def display_calendar(parent_frame, backup_path):
                          text=f"백업 경로: {backup_path}", 
                          style="SmallText.TLabel")
     path_label.pack(side="right")
-    
-    # 키보드 단축키 바인딩
-    parent_frame.bind("<Left>", lambda e: change_month(-1))  # 왼쪽 화살표: 이전달
-    parent_frame.bind("<Right>", lambda e: change_month(1))  # 오른쪽 화살표: 다음달
-    parent_frame.bind("<Home>", lambda e: go_to_today())     # Home: 오늘
