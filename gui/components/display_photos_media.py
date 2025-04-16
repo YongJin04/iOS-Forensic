@@ -16,6 +16,7 @@ import sqlite3
 import subprocess
 import tempfile
 import threading
+import concurrent.futures
 from pathlib import Path
 from typing import List, Tuple
 
@@ -59,9 +60,14 @@ def display_photos_media(parent: tk.Widget, backup_path: str) -> None:
     canvas.pack(side="left", fill="both", expand=True)
     vsb.pack(side="right", fill="y")
 
+    # grid_frame을 캔버스 중앙에 배치
     grid_frame = tk.Frame(canvas, bg="white")
-    canvas.create_window((0, 0), window=grid_frame, anchor="nw")
+    grid_window = canvas.create_window((0, 0), window=grid_frame, anchor="center")
     grid_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+    def center_grid(event):
+        canvas.coords(grid_window, event.width / 2, event.height / 2)
+    canvas.bind("<Configure>", center_grid)
 
     nav_frame = ttk.Frame(parent)
     nav_frame.pack(fill="x", pady=(6, 4))
@@ -74,8 +80,11 @@ def display_photos_media(parent: tk.Widget, backup_path: str) -> None:
 
     state: dict = {"items": [], "page": 0, "thumbs": {}}
 
+    # 백그라운드에서 인접 페이지의 썸네일을 생성하기 위해 ThreadPoolExecutor 사용 (최대 8 스레드)
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+
     # ─────────────────────────────────────────────────────────────
-    # Helpers for media‑type detection
+    # 미디어 형식 감지 헬퍼 함수들
     # ─────────────────────────────────────────────────────────────
     def _is_video(path: Path, fname: str) -> bool:
         ext_path = path.suffix.lower()
@@ -95,7 +104,7 @@ def display_photos_media(parent: tk.Widget, backup_path: str) -> None:
     threading.Thread(target=_scan, daemon=True).start()
 
     # ─────────────────────────────────────────────────────────────
-    # Image / video decoding
+    # 이미지 / 비디오 디코딩 함수들
     # ─────────────────────────────────────────────────────────────
     def _load_image(path: Path) -> Image.Image:
         ext = path.suffix.lower()
@@ -124,7 +133,8 @@ def display_photos_media(parent: tk.Widget, backup_path: str) -> None:
 
     def _video_thumb_pipe(path: Path) -> Image.Image | None:
         ffmpeg = os.environ["IMAGEIO_FFMPEG_EXE"]
-        cmd = [ffmpeg, "-loglevel", "error", "-nostdin", "-ss", "0.5", "-i", str(path), "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "pipe:1"]
+        cmd = [ffmpeg, "-loglevel", "error", "-nostdin", "-ss", "0.5", "-i", str(path),
+               "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "pipe:1"]
         try:
             with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc:
                 data = proc.stdout.read()
@@ -138,7 +148,8 @@ def display_photos_media(parent: tk.Widget, backup_path: str) -> None:
         ffmpeg = os.environ["IMAGEIO_FFMPEG_EXE"]
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp_name = tmp.name
-        cmd = [ffmpeg, "-loglevel", "error", "-nostdin", "-ss", "0.5", "-i", str(path), "-frames:v", "1", "-q:v", "2", tmp_name]
+        cmd = [ffmpeg, "-loglevel", "error", "-nostdin", "-ss", "0.5", "-i", str(path),
+               "-frames:v", "1", "-q:v", "2", tmp_name]
         if subprocess.call(cmd) == 0 and Path(tmp_name).exists():
             try:
                 img = Image.open(tmp_name)
@@ -164,8 +175,33 @@ def display_photos_media(parent: tk.Widget, backup_path: str) -> None:
         return img
 
     # ─────────────────────────────────────────────────────────────
-    # Thumbnail cache & builder
+    # 무거운 작업(디코딩, 썸네일 생성)만 수행하여 PIL 이미지 반환하는 함수
+    def _generate_thumbnail_image(path: Path, fname: str) -> Image.Image:
+        try:
+            if _is_video(path, fname):
+                pil_img = _video_thumbnail(path)
+            elif _is_image(path, fname):
+                pil_img = _load_image(path)
+                pil_img.thumbnail((THUMB_SIDE, THUMB_SIDE))
+            else:
+                raise ValueError("Unsupported format")
+        except Exception:
+            pil_img = Image.new("RGB", (THUMB_SIDE, THUMB_SIDE), "gray")
+        return pil_img
+
+    # 메인 스레드에서 PhotoImage 생성 후 캐시에 저장
+    def _store_photoimage(path: Path, pil_img: Image.Image):
+        if path not in state["thumbs"]:
+            photo = ImageTk.PhotoImage(pil_img)
+            state["thumbs"][path] = photo
+
+    # 백그라운드에서 호출되는 미리 로드 작업 함수
+    def _preload_task(path: Path, fname: str):
+        pil_img = _generate_thumbnail_image(path, fname)
+        parent.after(0, lambda: _store_photoimage(path, pil_img))
+
     # ─────────────────────────────────────────────────────────────
+    # 썸네일 캐시 및 생성 (동일한 _thumb 함수는 페이지 렌더링 시 사용)
     def _thumb(path: Path, fname: str) -> ImageTk.PhotoImage:
         cache = state["thumbs"]
         if path in cache:
@@ -185,8 +221,7 @@ def display_photos_media(parent: tk.Widget, backup_path: str) -> None:
         return photo
 
     # ─────────────────────────────────────────────────────────────
-    # File save helper
-    # ─────────────────────────────────────────────────────────────
+    # 파일 저장 헬퍼 함수
     def _save_file(src: Path, save_name: str):
         dest = filedialog.asksaveasfilename(initialfile=save_name)
         if dest:
@@ -203,6 +238,7 @@ def display_photos_media(parent: tk.Widget, backup_path: str) -> None:
             child.destroy()
 
     # ─────────────────────────────────────────────────────────────
+    # 페이지 렌더링 함수 (현재 페이지의 썸네일을 표시)
     def _render_page():
         total_items = len(state["items"])
         if total_items == 0:
@@ -223,12 +259,15 @@ def display_photos_media(parent: tk.Widget, backup_path: str) -> None:
             photo = _thumb(p, fname)
             lbl = tk.Label(thumb_box, image=photo, bg="white")
             lbl.image = photo
-            lbl.pack(expand=True)
+            # 썸네일 이미지를 중앙 정렬
+            lbl.pack(expand=True, anchor="center")
             lbl.bind("<Button-3>", lambda e, src=p, name=fname: _save_file(src, name))
             tk.Label(cell, text=fname, bg="white", wraplength=THUMB_SIDE, justify="center").pack(pady=(2, 0))
         nav_label.config(text=f"{state['page'] + 1} / {total_pages}")
         nav_prev.config(state="normal" if state["page"] > 0 else "disabled")
         nav_next.config(state="normal" if state["page"] < total_pages - 1 else "disabled")
+        # 현재 페이지 주변 양옆 최대 5페이지의 썸네일을 미리 로드 (전체 페이지가 5개 초과일 때)
+        parent.after(100, _preload_adjacent_pages)
 
     nav_prev.config(command=lambda: _set_page(state["page"] - 1))
     nav_next.config(command=lambda: _set_page(state["page"] + 1))
@@ -236,6 +275,26 @@ def display_photos_media(parent: tk.Widget, backup_path: str) -> None:
     def _set_page(new_page: int):
         state["page"] = new_page
         _render_page()
+
+    # ─────────────────────────────────────────────────────────────
+    # 인접 페이지(양옆 최대 5페이지) 썸네일 미리 로드 함수 (백그라운드 스레드에서 수행)
+    def _preload_adjacent_pages():
+        total_items = len(state["items"])
+        total_pages = (total_items + PAGE_SIZE - 1) // PAGE_SIZE
+        if total_pages <= 5:
+            return
+        preload_range = 5
+        current = state["page"]
+        start_page = max(0, current - preload_range)
+        end_page = min(total_pages, current + preload_range + 1)
+        for page in range(start_page, end_page):
+            if page == current:
+                continue
+            page_start = page * PAGE_SIZE
+            page_end = min(page_start + PAGE_SIZE, total_items)
+            for p, fname in state["items"][page_start:page_end]:
+                if p not in state["thumbs"]:
+                    executor.submit(_preload_task, p, fname)
 
 
 def _enumerate_media_files(backup_root: Path):
