@@ -8,4 +8,4 @@ imageio-ffmpeg==0.6.0
 matplotlib==3.10.1
 biplist==1.0.3
 tk
-pycrypto
+pycryptodome==3.22.0
