@@ -3,31 +3,29 @@ import sqlite3
 from datetime import datetime
 import pandas as pd
 
+
 class BackupPathHelper:
     """
-    iOS 백업 파일 경로를 찾기 위한 도우미 클래스.
-    Manifest.db 파일을 이용하여 백업 파일의 실제 경로를 탐색합니다.
+    Helper class that locates a file inside an iOS backup using Manifest.db.
     """
+
     def __init__(self, backup_path: str):
         self.backup_path = backup_path
 
     def get_file_path_from_manifest(self, relative_path: str) -> str:
-        """
-        Manifest.db에서 주어진 상대 경로에 해당하는 파일의 해시값을 조회하여
-        실제 파일 경로를 반환합니다.
-        
-        :param relative_path: Manifest.db에서 검색할 상대 파일 경로
-        :return: 실제 파일 경로 또는 None (파일을 찾지 못한 경우)
-        """
+        """Return the absolute path to a file referenced in Manifest.db or ``None`` if it
+        cannot be resolved."""
         manifest_path = os.path.join(self.backup_path, "Manifest.db")
         if not os.path.exists(manifest_path):
-            print(f"[오류] Manifest.db 파일이 존재하지 않습니다: {manifest_path}")
+            print(f"[Error] Manifest.db not found: {manifest_path}")
             return None
 
         try:
             with sqlite3.connect(manifest_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT fileID FROM Files WHERE relativePath = ?", (relative_path,))
+                cursor.execute(
+                    "SELECT fileID FROM Files WHERE relativePath = ?", (relative_path,)
+                )
                 result = cursor.fetchone()
 
             if result:
@@ -35,79 +33,76 @@ class BackupPathHelper:
                 file_path = os.path.join(self.backup_path, file_hash[:2], file_hash)
                 if os.path.exists(file_path):
                     return file_path
-                else:
-                    print(f"[경고] Manifest에 등록되었으나 실제 파일이 존재하지 않습니다: {file_path}")
+                print(
+                    f"[Warning] Hash listed in Manifest.db but file is missing on disk: {file_path}"
+                )
             else:
-                print(f"[경고] Manifest에서 해당 상대 경로를 찾을 수 없습니다: {relative_path}")
+                print(f"[Warning] {relative_path} not found in Manifest.db")
         except Exception as e:
-            print(f"[오류] Manifest.db 검색 오류: {e}")
+            print(f"[Error] Failed to query Manifest.db: {e}")
         return None
+
 
 class CalendarAnalyser:
     """
-    iOS 캘린더 데이터베이스를 분석하는 클래스.
-    백업 경로를 통해 캘린더 데이터베이스 파일에 접근하여 이벤트 및 관련 정보를 DataFrame이나 dict 형태로 반환합니다.
+    Analyse the iOS Calendar database extracted from a backup and expose helper
+    methods for forensic processing.
     """
+
+    IOS_EPOCH = 978307200  # Seconds between 1970‑01‑01 and 2001‑01‑01
+
     def __init__(self, backup_path: str):
-        """
-        캘린더 분석기 초기화.
-        :param backup_path: iOS 백업의 루트 경로
-        """
         self.backup_path = backup_path
-        # Manifest 검색 실패 시 사용할 기본 캘린더 DB 경로
-        self.default_calendar_db_path = os.path.join(backup_path, "Library", "Calendar", "Calendar.sqlitedb")
-        self.conn = None
+        self.default_calendar_db_path = os.path.join(
+            backup_path, "Library", "Calendar", "Calendar.sqlitedb"
+        )
+        self.conn: sqlite3.Connection | None = None
         self.path_helper = BackupPathHelper(backup_path)
 
+    # ---------------------------------------------------------------------
+    # Connection helpers
+    # ---------------------------------------------------------------------
     def connect_to_db(self) -> bool:
-        """
-        캘린더 데이터베이스에 연결을 시도합니다.
-        우선 Manifest.db에서 파일 경로를 찾고, 실패 시 기본 경로를 사용합니다.
-        
-        :return: 연결 성공 여부 (True/False)
+        """Open a read‑only connection to ``Calendar.sqlitedb``.
+
+        Returns ``True`` on success, otherwise ``False``.
         """
         relative_path = "Library/Calendar/Calendar.sqlitedb"
         calendar_db_path = self.path_helper.get_file_path_from_manifest(relative_path)
         if not calendar_db_path:
-            print("[정보] Manifest 검색 실패. 기본 경로 사용:")
+            print("[Info] Manifest lookup failed. Falling back to default path.")
             calendar_db_path = self.default_calendar_db_path
 
-        if os.path.exists(calendar_db_path):
-            try:
-                self.conn = sqlite3.connect(calendar_db_path)
-                self.conn.row_factory = sqlite3.Row  # Row 객체를 dict처럼 사용할 수 있음
-                print(f"[성공] Calendar 데이터베이스 연결 성공: {calendar_db_path}")
-                return True
-            except sqlite3.Error as e:
-                print(f"[오류] 데이터베이스 연결 오류: {e}")
-                return False
-        else:
-            print("[오류] Calendar 데이터베이스 파일을 찾을 수 없습니다.")
+        if not os.path.exists(calendar_db_path):
+            print("[Error] Calendar database file not found.")
             return False
 
-    def close_connection(self):
-        """
-        데이터베이스 연결 종료.
-        """
+        try:
+            # Open read‑only to avoid accidental mutations
+            self.conn = sqlite3.connect(f"file:{calendar_db_path}?mode=ro", uri=True)
+            self.conn.row_factory = sqlite3.Row
+            # print(f"[Success] Connected to calendar DB: {calendar_db_path}")
+            return True
+        except sqlite3.Error as e:
+            print(f"[Error] Could not connect to database: {e}")
+            return False
+
+    def close_connection(self) -> None:
         if self.conn:
             self.conn.close()
             self.conn = None
 
-    def _convert_date(self, raw_value) -> datetime:
-        """
-        캘린더의 날짜 값을 datetime 객체로 변환합니다.
-        iOS는 기준 시간(978307200초)을 보정하여 저장합니다.
-        값의 크기에 따라 적절하게 단위를 변환합니다.
-        
-        :param raw_value: 변환 전 날짜 값
-        :return: 변환된 datetime 객체 또는 None (변환 실패 시)
-        """
+    # ---------------------------------------------------------------------
+    # Internal helpers
+    # ---------------------------------------------------------------------
+    def _convert_date(self, raw_value) -> datetime | None:
+        """Convert CoreData timestamp to ``datetime`` (local time)."""
         try:
             raw_value = float(raw_value)
         except (ValueError, TypeError):
             return None
 
-        # 값의 크기에 따라 나노초, 밀리초 또는 초 단위로 변환
+        # Handle nsdate stored as nanoseconds / milliseconds / seconds since 2001‑01‑01.
         if raw_value > 1e12:
             seconds = raw_value / 1e9
         elif raw_value > 1e9:
@@ -115,216 +110,186 @@ class CalendarAnalyser:
         else:
             seconds = raw_value
 
-        unix_time_sec = seconds + 978307200  # iOS 기준 시간 보정
         try:
-            return datetime.fromtimestamp(unix_time_sec)
+            return datetime.fromtimestamp(seconds + self.IOS_EPOCH)
         except Exception:
             return None
 
+    # ---------------------------------------------------------------------
+    # Public API
+    # ---------------------------------------------------------------------
     def get_events_for_month(self, year: int, month: int) -> pd.DataFrame:
-        """
-        지정된 연도와 월의 이벤트 목록을 DataFrame으로 반환합니다.
-        CalendarItem과 Calendar 테이블을 조인하여 이벤트 세부 정보를 가져옵니다.
-        
-        :param year: 연도 (예: 2023)
-        :param month: 월 (1~12)
-        :return: 이벤트 정보를 담은 DataFrame (데이터가 없으면 빈 DataFrame 반환)
-        """
+        """Return a ``DataFrame`` with all events that **start** in ``year``/``month``."""
         if not self.conn and not self.connect_to_db():
             return pd.DataFrame()
 
         try:
             from calendar import monthrange
+
             start_date = datetime(year, month, 1)
-            last_day = monthrange(year, month)[1]
-            end_date = datetime(year, month, last_day, 23, 59, 59)
-            # 저장된 타임스탬프는 보정 전 값이므로 기준 시간 차감
-            start_timestamp = start_date.timestamp() - 978307200
-            end_timestamp = end_date.timestamp() - 978307200
+            end_date = datetime(year, month, monthrange(year, month)[1], 23, 59, 59)
+            start_ts = start_date.timestamp() - self.IOS_EPOCH
+            end_ts = end_date.timestamp() - self.IOS_EPOCH
 
             query = """
-            SELECT ci.ROWID as event_id, ci.summary, ci.start_date, ci.end_date, ci.all_day, 
-                   ci.location_id, ci.description, c.title as calendar_title, c.color, c.symbolic_color_name
-            FROM CalendarItem ci
-            LEFT JOIN Calendar c ON ci.calendar_id = c.ROWID
-            WHERE ci.start_date BETWEEN ? AND ?
-            ORDER BY ci.start_date ASC;
+            SELECT ci.ROWID                AS event_id,
+                   ci.summary,
+                   ci.start_date,
+                   ci.end_date,
+                   ci.all_day,
+                   ci.location_id,
+                   ci.description,
+                   c.title                AS calendar_title,
+                   c.color,
+                   c.symbolic_color_name
+            FROM   CalendarItem ci
+                   LEFT JOIN Calendar c ON ci.calendar_id = c.ROWID
+            WHERE  ci.start_date BETWEEN ? AND ?
+            ORDER  BY ci.start_date;
             """
-            df = pd.read_sql_query(query, self.conn, params=(start_timestamp, end_timestamp))
-            df['start_date'] = df['start_date'].apply(self._convert_date)
-            df['end_date'] = df['end_date'].apply(self._convert_date)
+            df = pd.read_sql_query(query, self.conn, params=(start_ts, end_ts))
+            df["start_date"] = df["start_date"].apply(self._convert_date)
+            df["end_date"] = df["end_date"].apply(self._convert_date)
             return df
         except Exception as e:
-            print(f"[오류] 이벤트 조회 오류: {e}")
+            print(f"[Error] Failed to query events: {e}")
             return pd.DataFrame()
 
-    def get_event_details(self, event_id: int) -> dict:
-        """
-        특정 이벤트의 상세 정보를 반환합니다.
-        추가로 캘린더 정보(예: 캘린더 제목, 색상 등)를 포함합니다.
-        
-        :param event_id: 조회할 이벤트의 ROWID
-        :return: 이벤트 상세 정보를 담은 dict (없으면 None)
-        """
+    def get_event_details(self, event_id: int) -> dict | None:
         if not self.conn and not self.connect_to_db():
             return None
         try:
             query = """
-            SELECT ci.*, c.title as calendar_title, c.color, c.symbolic_color_name
-            FROM CalendarItem ci
-            LEFT JOIN Calendar c ON ci.calendar_id = c.ROWID
-            WHERE ci.ROWID = ?
+            SELECT ci.*,
+                   c.title                AS calendar_title,
+                   c.color,
+                   c.symbolic_color_name
+            FROM   CalendarItem ci
+                   LEFT JOIN Calendar c ON ci.calendar_id = c.ROWID
+            WHERE  ci.ROWID = ?;
             """
-            cursor = self.conn.cursor()
-            cursor.execute(query, (event_id,))
-            row = cursor.fetchone()
-            if row:
-                event = dict(row)
-                event['start_date'] = self._convert_date(event['start_date'])
-                event['end_date'] = self._convert_date(event['end_date'])
-                return event
-            return None
+            row = self.conn.execute(query, (event_id,)).fetchone()
+            if not row:
+                return None
+
+            event = dict(row)
+            event["start_date"] = self._convert_date(event["start_date"])
+            event["end_date"] = self._convert_date(event["end_date"])
+            return event
         except sqlite3.Error as e:
-            print(f"[오류] 이벤트 상세 정보 조회 오류: {e}")
+            print(f"[Error] Failed to fetch event details: {e}")
             return None
 
+    # ------------------------------------------------------------------
+    # Stub helpers – keep prints in English so that all *visible* output
+    # remains English‑only, as requested.
+    # ------------------------------------------------------------------
     def get_error_logs(self, event_id: int) -> list:
-        """
-        현재 캘린더 데이터베이스 스키마에 Error 로그 테이블이 없으므로,
-        빈 리스트를 반환하거나 별도의 처리를 진행할 수 있습니다.
-        
-        :param event_id: 캘린더 항목의 ROWID
-        :return: 빈 리스트
-        """
-        print("[정보] Error 로그 테이블이 존재하지 않습니다.")
+        print("[Info] The schema contains no ErrorLog table – returning empty list.")
         return []
 
     def get_event_actions(self, event_id: int) -> list:
-        """
-        EventAction 테이블에서 해당 이벤트의 외부 연동 작업 정보를 조회합니다.
-        
-        :param event_id: 이벤트의 ROWID
-        :return: 외부 연동 작업 정보 목록
-        """
         try:
-            query = "SELECT * FROM EventAction WHERE event_id = ?"
-            df = pd.read_sql_query(query, self.conn, params=(event_id,))
-            return df.to_dict('records')
+            df = pd.read_sql_query(
+                "SELECT * FROM EventAction WHERE event_id = ?", self.conn, params=(event_id,)
+            )
+            return df.to_dict("records")
         except Exception as e:
-            print(f"[오류] EventAction 조회 오류: {e}")
+            print(f"[Error] Failed to fetch EventAction: {e}")
             return []
 
     def get_exception_dates(self, event_id: int) -> list:
-        """
-        반복 이벤트에 대한 예외 날짜 정보를 ExceptionDate 테이블에서 조회합니다.
-        날짜 필드는 문자열(YYYY-MM-DD)을 datetime 객체로 변환합니다.
-        
-        :param event_id: 이벤트의 ROWID
-        :return: 예외 날짜 정보 목록
-        """
         try:
-            query = "SELECT * FROM ExceptionDate WHERE owner_id = ?"
-            df = pd.read_sql_query(query, self.conn, params=(event_id,))
-            if not df.empty and 'date' in df.columns:
-                df['date'] = df['date'].apply(lambda x: datetime.strptime(x, "%Y-%m-%d") if isinstance(x, str) else x)
-            return df.to_dict('records')
+            df = pd.read_sql_query(
+                "SELECT * FROM ExceptionDate WHERE owner_id = ?", self.conn, params=(event_id,)
+            )
+            if not df.empty and "date" in df.columns:
+                df["date"] = df["date"].apply(
+                    lambda x: datetime.strptime(x, "%Y-%m-%d") if isinstance(x, str) else x
+                )
+            return df.to_dict("records")
         except Exception as e:
-            print(f"[오류] ExceptionDate 조회 오류: {e}")
+            print(f"[Error] Failed to fetch ExceptionDate: {e}")
             return []
 
     def get_recurrence_info(self, event_id: int) -> list:
-        """
-        반복 규칙 정보를 Recurrence 테이블에서 조회합니다.
-        
-        :param event_id: 이벤트의 ROWID
-        :return: 반복 규칙 정보 목록
-        """
         try:
-            query = "SELECT * FROM Recurrence WHERE owner_id = ?"
-            df = pd.read_sql_query(query, self.conn, params=(event_id,))
-            return df.to_dict('records')
+            df = pd.read_sql_query(
+                "SELECT * FROM Recurrence WHERE owner_id = ?", self.conn, params=(event_id,)
+            )
+            return df.to_dict("records")
         except Exception as e:
-            print(f"[오류] Recurrence 정보 조회 오류: {e}")
+            print(f"[Error] Failed to fetch RecurrenceInfo: {e}")
             return []
 
     def get_participants(self, event_id: int) -> list:
-        """
-        Participant 테이블에서 이벤트의 참여자 정보를 조회합니다.
-        
-        :param event_id: 이벤트의 ROWID
-        :return: 참여자 정보 목록
-        """
         try:
-            query = "SELECT * FROM Participant WHERE owner_id = ?"
-            df = pd.read_sql_query(query, self.conn, params=(event_id,))
-            return df.to_dict('records')
+            df = pd.read_sql_query(
+                "SELECT * FROM Participant WHERE owner_id = ?", self.conn, params=(event_id,)
+            )
+            return df.to_dict("records")
         except Exception as e:
-            print(f"[오류] Participant 조회 오류: {e}")
+            print(f"[Error] Failed to fetch Participant: {e}")
             return []
 
     def get_location_info(self, location_id: int) -> list:
-        """
-        Location 테이블에서 위치 정보를 조회합니다.
-        
-        :param location_id: 위치의 ROWID
-        :return: 위치 정보 목록
-        """
         try:
-            query = "SELECT * FROM Location WHERE ROWID = ?"
-            df = pd.read_sql_query(query, self.conn, params=(location_id,))
-            return df.to_dict('records')
+            df = pd.read_sql_query(
+                "SELECT * FROM Location WHERE ROWID = ?", self.conn, params=(location_id,)
+            )
+            return df.to_dict("records")
         except Exception as e:
-            print(f"[오류] Location 정보 조회 오류: {e}")
+            print(f"[Error] Failed to fetch Location: {e}")
             return []
 
     def get_alarms_for_event(self, event_id: int) -> list:
-        """
-        Alarm 테이블과 AlarmCache 테이블을 조인하여 이벤트와 연결된 알람 정보를 조회합니다.
-        알람의 trigger_date, trigger_interval, type, disabled 및 AlarmCache의 occurrence_date, fire_date를 포함합니다.
-        
-        :param event_id: 이벤트의 ROWID (AlarmCache.event_id)
-        :return: 알람 정보 목록
-        """
         if not self.conn and not self.connect_to_db():
             return []
         try:
             query = """
-            SELECT a.ROWID as alarm_id, a.trigger_date, a.trigger_interval, a.type, a.disabled,
-                   ac.occurrence_date, ac.fire_date
-            FROM Alarm a
-            LEFT JOIN AlarmCache ac ON a.ROWID = ac.alarm_id
-            WHERE ac.event_id = ?
-            ORDER BY a.trigger_date ASC;
+            SELECT a.ROWID AS alarm_id,
+                   a.trigger_date,
+                   a.trigger_interval,
+                   a.type,
+                   a.disabled,
+                   ac.occurrence_date,
+                   ac.fire_date
+            FROM   Alarm a
+                   LEFT JOIN AlarmCache ac ON a.ROWID = ac.alarm_id
+            WHERE  ac.event_id = ?
+            ORDER  BY a.trigger_date;
             """
             df = pd.read_sql_query(query, self.conn, params=(event_id,))
             if not df.empty:
-                df['trigger_date'] = df['trigger_date'].apply(self._convert_date)
-                df['occurrence_date'] = df['occurrence_date'].apply(self._convert_date)
-                df['fire_date'] = df['fire_date'].apply(self._convert_date)
-            return df.to_dict('records')
+                df["trigger_date"] = df["trigger_date"].apply(self._convert_date)
+                df["occurrence_date"] = df["occurrence_date"].apply(self._convert_date)
+                df["fire_date"] = df["fire_date"].apply(self._convert_date)
+            return df.to_dict("records")
         except Exception as e:
-            print(f"[오류] 알람 정보 조회 오류: {e}")
+            print(f"[Error] Failed to fetch Alarms: {e}")
             return []
 
     def get_attachments_for_event(self, event_id: int) -> list:
-        """
-        Attachment 테이블에서 이벤트와 연결된 첨부파일 정보를 조회합니다.
-        첨부파일의 기본 메타데이터(ROWID, owner_id, external_rep, file_id)를 반환합니다.
-        
-        :param event_id: Attachment 테이블의 owner_id에 해당하는 이벤트의 ROWID
-        :return: 첨부파일 정보 목록
-        """
         if not self.conn and not self.connect_to_db():
             return []
         try:
-            query = """
-            SELECT ROWID as attachment_id, owner_id, external_rep, file_id
-            FROM Attachment
-            WHERE owner_id = ?
-            ORDER BY attachment_id ASC;
-            """
-            df = pd.read_sql_query(query, self.conn, params=(event_id,))
-            return df.to_dict('records')
+            df = pd.read_sql_query(
+                """
+                SELECT ROWID AS attachment_id,
+                       owner_id,
+                       external_rep,
+                       file_id,
+                       filename,
+                       mime_type,
+                       file_size
+                FROM   Attachment
+                WHERE  owner_id = ?
+                ORDER  BY attachment_id;
+                """,
+                self.conn,
+                params=(event_id,),
+            )
+            return df.to_dict("records")
         except Exception as e:
-            print(f"[오류] 첨부파일 정보 조회 오류: {e}")
+            print(f"[Error] Failed to fetch Attachments: {e}")
             return []
