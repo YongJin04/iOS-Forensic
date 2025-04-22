@@ -158,7 +158,12 @@ def setup_gui(rootWindow: tk.Tk, colors: dict[str, str]) -> dict:
     # ─── 이벤트 바인딩 ─────────────────────────────────────────
     browse_button.configure(
         command=lambda: browse_backup_path(
-            backup_path_var, password_entry, password_var, enable_pw_var
+            backup_path_var,
+            password_entry,
+            password_var,
+            enable_pw_var,
+            enable_pw_check,   # ← 추가
+            pw_toggle_btn      # ← 추가
         )
     )
 
@@ -167,7 +172,9 @@ def setup_gui(rootWindow: tk.Tk, colors: dict[str, str]) -> dict:
             backup_path_var.get(),
             password_var.get(),
             backup_tree,
-            enable_pw_var,
+            enable_pw_var,          # IntVar
+            enable_pw_check,        # Checkbutton  ← 신규 전달
+            password_entry,         # Entry        ← 신규 전달
             file_list_widgets["file_list_tree"],
             icon_dict=icon_dict,
             flag_container=backup_loaded_flag,
