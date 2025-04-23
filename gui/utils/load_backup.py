@@ -19,7 +19,29 @@ def load_backup(
     icon_dict=None,
     flag_container=None,
 ) -> None:
-    """Load the backup and update UI components accordingly."""
+    """
+    • `.decrypting` 플래그가 존재하면 “복호화 진행/미완료” 오류 후 종료.
+    • 백업이 아직 암호화돼 있고 `.decryption_complete` 가 없다면
+      기존과 동일하게 로드 차단.
+    """
+    decrypting_flag   = os.path.join(backup_path, ".decrypting")
+    completed_flag    = os.path.join(backup_path, ".decryption_complete")
+
+    # ── 미완료/진행 중 검사 ────────────────────────────────────
+    if os.path.exists(decrypting_flag):
+        messagebox.showerror(
+            "Error",
+            "Decryption is still in progress or was cancelled before completion.\n"
+            "Please finish or restart decryption before loading this backup.",
+        )
+        return
+
+    # ── 암호화 + 미완료 검사 ──────────────────────────────────
+    if is_backup_encrypted(backup_path) and not os.path.exists(completed_flag):
+        messagebox.showerror("Error", "Decryption was not completed. Please try again.")
+        return
+
+    # ── 이하 기존 로직 그대로 ─────────────────────────────────
     def update_status(message: str) -> None:
         if status_label:
             status_label.config(text=message)
@@ -36,19 +58,6 @@ def load_backup(
         update_status("Error: Manifest.plist file not found")
         messagebox.showwarning("Warning", "Manifest.plist file could not be found.")
         return
-
-    encrypted = is_backup_encrypted(backup_path)
-
-    """
-    if encrypted:
-        update_status("Error: Encrypted backup – decryption not supported")
-        messagebox.showerror(
-            "Error",
-            "This backup is encrypted.\n"
-            "Please create a decrypted backup using iTunes or Finder and try again.",
-        )
-        return
-    """
 
     update_status("Loading Manifest.db file...")
     file_info_list = load_manifest_db(backup_path)
@@ -78,7 +87,6 @@ def load_backup(
 
     if flag_container is not None:
         flag_container["loaded"] = True
-
 
 def check_backup_directory(backup_path: str) -> bool:
     """Validate the backup directory path."""
