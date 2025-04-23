@@ -39,6 +39,7 @@ def load_backup(
 
     encrypted = is_backup_encrypted(backup_path)
 
+    """
     if encrypted:
         update_status("Error: Encrypted backup – decryption not supported")
         messagebox.showerror(
@@ -47,6 +48,7 @@ def load_backup(
             "Please create a decrypted backup using iTunes or Finder and try again.",
         )
         return
+    """
 
     update_status("Loading Manifest.db file...")
     file_info_list = load_manifest_db(backup_path)
