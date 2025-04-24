@@ -1,11 +1,9 @@
-
 # iOS Forensic Analyzer
 
 **iOS Forensic Analyzer** is a powerful and lightweight forensic investigation tool for iOS devices. This tool consolidates key user and system artifacts into one standalone executable for efficient analysis.
 
 ## Features
-
-This tool supports analysis of the following iOS artifacts:
+This tool supports analysis of the following iOS artifacts
 
 ### Default iOS Artifacts
 - Contacts
@@ -32,25 +30,24 @@ This tool supports analysis of the following iOS artifacts:
 - SIM Card
 - User Account
 
----
+### Backup Decryption
+- Supports decryption of encrypted iOS backups for artifact extraction
 
+---
 ## How to Use
 
-1. Clone this repository or download the EXE file from the Releases section.
-2. To run the Python version locally:
-
+1. Clone this repository:
 ```bash
-python.exe main.py
+git clone https://github.com/YongJin04/iOS-Forensics.git
+cd iOS-Forensics
 ```
 
-3. Make sure all required modules are installed (see below).
-
----
-
-## Requirements
-
-Install dependencies using `pip`:
-
+2. Install dependencies using `pip`:
 ```bash
 pip install -r requirements.txt
+```
+
+3. To run the Python version locally:
+```bash
+python.exe main.py
 ```
