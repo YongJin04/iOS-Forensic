@@ -10,7 +10,7 @@ This tool supports analysis of the following iOS artifacts
 - Callhistory
 - SMS / iMessage
 - Notes
-- Gallery
+- Gallery / Deleted Image
 - Calendar
 
 ### Messenger Applications
