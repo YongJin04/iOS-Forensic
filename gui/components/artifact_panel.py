@@ -6,8 +6,9 @@ from gui.components.display_message import *
 from gui.components.display_addressbook import *
 from gui.components.display_photos_media import *
 from gui.components.display_call_history import *
-from gui.components.display_sms import *  # Added SMS display module
-from gui.components.display_calendar import *  # Added Calendar display module
+from gui.components.display_sms import *
+from gui.components.display_calendar import *
+from gui.components.display_installed_applications import *
 from gui.components.display_bluetooth import *
 from gui.components.display_user_account import *
 from gui.components.display_wifi import *
@@ -32,6 +33,7 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
     # Create category buttons
     categories = [
         {"name": "Device Info", "icon": "📱", "command": lambda: display_device_info(content_frame, backup_path_var.get())},
+        {"name": "Installed Applications", "icon": "🛠️", "command": lambda: display_installed_applications(content_frame, backup_path_var.get())},
         {"name": "User Account", "icon": "👤", "command": lambda: display_user_account(content_frame, backup_path_var.get())},
         {"name": "Wi-Fi", "icon": "📶", "command": lambda: display_wifi(content_frame, backup_path_var.get())},
         {"name": "Browser", "icon": "🌐", "command": lambda: display_browser(content_frame, backup_path_var.get())},
