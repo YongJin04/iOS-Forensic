@@ -243,28 +243,32 @@ def display_kakaotalk(parent_frame, backup_path):
         content_frame.pack(fill="both")
         
         # Canvas의 너비 정보를 참조하여 메시지 버블 내 내용의 최대 너비 결정
-        available_width = canvas.winfo_width() if canvas.winfo_width() > 0 else 300
+        
+        # TODO: 이거 canvas.winfo_width() 왜 1만 나옴 ?
+        # available_width = canvas.winfo_width() if canvas.winfo_width() > 0 else 300
+        available_width = 600
         
         # 메시지가 첨부파일(예: 사진)을 포함하는 경우 처리
-        # if message.get("attachment"):
-        #     try:
-        #         if os.path.exists(message["attachment_path"]):
-        #             # 첨부 이미지 파일을 열고, 최대 너비의 90%로 리사이즈 (비율 유지)
-        #             img = Image.open(message["attachment_path"])
-        #             max_img_width = int(available_width * 0.9)
-        #             ratio = max_img_width / img.width
-        #             new_size = (max_img_width, int(img.height * ratio))
-        #             img = img.resize(new_size, Image.LANCZOS)
-        #             photo = ImageTk.PhotoImage(img)
-        #             img_label = ttk.Label(content_frame, image=photo)
-        #             img_label.image = photo  # 가비지 컬렉션 방지를 위해 참조 유지
-        #             img_label.pack(pady=5)
-        #         else:
-        #             # 파일이 존재하지 않는 경우 메시지 출력
-        #             ttk.Label(content_frame, text="[이미지를 찾을 수 없음]", style="Text.TLabel").pack(pady=5)
-        #     except Exception as e:
-        #         # 이미지 로드 중 예외 발생 시 에러 메시지 출력
-        #         ttk.Label(content_frame, text=f"[이미지 로드 오류: {str(e)}]", style="Text.TLabel").pack(pady=5)
+        if len(message['attachment_list']) != 0:
+            for attachment_path in message['attachment_list']:
+                try:
+                    if os.path.exists(attachment_path):
+                        # 첨부 이미지 파일을 열고, 최대 너비의 90%로 리사이즈 (비율 유지)
+                        img = Image.open(attachment_path)
+                        max_img_width = int(available_width * 0.9)
+                        ratio = max_img_width / img.width
+                        new_size = (max_img_width, int(img.height * ratio))
+                        img = img.resize(new_size, Image.LANCZOS)
+                        photo = ImageTk.PhotoImage(img)
+                        img_label = ttk.Label(content_frame, image=photo)
+                        img_label.image = photo  # 가비지 컬렉션 방지를 위해 참조 유지
+                        img_label.pack(pady=5)
+                    else:
+                        # 파일이 존재하지 않는 경우 메시지 출력
+                        ttk.Label(content_frame, text="[이미지를 찾을 수 없음]", style="Text.TLabel").pack(pady=5)
+                except Exception as e:
+                    # 이미지 로드 중 예외 발생 시 에러 메시지 출력
+                    ttk.Label(content_frame, text=f"[이미지 로드 오류: {str(e)}]", style="Text.TLabel").pack(pady=5)
         # else:
             # 첨부파일이 없으면 메시지 텍스트를 처리
         message_text = 'Message (Encrypted): ' + message["message"] + '\n\nAttachment (Encrypted): ' + message['attachment']

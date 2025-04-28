@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import sqlite3
@@ -271,7 +272,7 @@ class KakaoTalkAnalyzer:
             cursor = self.conn_message_db.cursor()
             # 지정된 handle_rowid에 해당하는 메시지를 시간 순으로 조회합니다.
             query = """
-            SELECT chatId, userId, sentAt, readAt, message, attachment, serverLogId
+            SELECT chatId, userId, sentAt, readAt, message, attachment, serverLogId, type
             FROM Message 
             WHERE chatId = ?
             ORDER BY sentAt ASC
@@ -280,15 +281,28 @@ class KakaoTalkAnalyzer:
             messages = []
             
             for row in cursor.fetchall():
-                
-                # # 메시지 텍스트가 "사진"이면 첨부파일 경로를 조회 (간단 예시)
-                # attachment_path = None
-                # if row["text"] and row["text"].strip() == "사진":
-                #     attachment_path = self.get_attachment_path(row["guid"])
-                
-
                 decrypted_message = decrypt_message(row['userId'], row['message'])
                 decrypted_attachment = decrypt_attachment(row['userId'], row['attachment'])
+
+                # 첨부 파일이 있는 경우, 첨부 파일의 실제 경로(해시된 파일 경로)를 담을 list
+                attachment_list = []
+                
+                # 한 장 이미지
+                if row['type'] == 2:
+                    try:
+                        attachment_object = json.loads(decrypted_attachment)
+                        attachment_list.append(self.get_attachment_path(row['chatId'], attachment_object['k']))
+                    except json.decoder.JSONDecodeError as ex:
+                        print(f"첨부파일 파싱 오류: {ex}")
+                # 여러 장 이미지
+                elif row['type'] == 27:
+                    try:
+                        attachment_object = json.loads(decrypted_attachment)
+                        for k in attachment_object['kl']:
+                            attachment_list.append(self.get_attachment_path(row['chatId'], k))
+                    except json.decoder.JSONDecodeError as ex:
+                        print(f"첨부파일 파싱 오류: {ex}")
+
                 # 각 메시지 정보를 딕셔너리 형태로 저장
                 messages.append({
                     'serverLogId': row['serverLogId'],
@@ -299,6 +313,8 @@ class KakaoTalkAnalyzer:
                     'is_from_me': True if row['userId'] == self.my_id else False,
                     'direction': '발신' if row['userId'] == self.my_id else '수신',
                     'attachment': decrypted_attachment if decrypted_attachment else (row['attachment'] if row['attachment'] else ''),
+                    'type': row['type'],
+                    'attachment_list': attachment_list,
                 })
             
             return messages
@@ -306,34 +322,14 @@ class KakaoTalkAnalyzer:
             print(f"메시지 조회 오류: {e}")
             return []
     
-    def get_attachment_path(self, message_guid):
-        """메시지의 첨부파일 경로를 가져옵니다."""
-        if not self.conn_message_db:
-            if not self.connect_to_message_db():
-                return None
-        
-        try:
-            cursor = self.conn_message_db.cursor()
-            # message, message_attachment_join, attachment 테이블을 JOIN하여 첨부파일의 filename을 조회합니다.
-            query = """
-            SELECT attachment.filename
-            FROM Message
-            JOIN message_attachment_join
-                ON message.ROWID = message_attachment_join.message_id
-            JOIN attachment
-                ON attachment.ROWID = message_attachment_join.attachment_id
-            WHERE message.guid = ?
-            LIMIT 1
-            """
-            cursor.execute(query, (message_guid,))
-            row = cursor.fetchone()
-            if row and row["filename"]:
-                return row["filename"]
-            return None
-        except sqlite3.Error as e:
-            print(f"첨부파일 조회 오류: {e}")
-            return None
-    
+    # TODO: 매번 가져오는 게 나을까?
+    def get_attachment_path(self, chat_id, k):
+        """첨부파일 경로를 Manifest로부터 가져옵니다."""
+        url_splitted = k.split('/')
+        domain_path = 'AppDomain-com.iwilab.KakaoTalk'
+        file_relative_path = 'Library/PrivateDocuments/chat/' +str(chat_id) + '/_talkm_' + url_splitted[-3] + '_' + url_splitted[-2] + '_' + url_splitted[-1]
+        return self.path_helper.get_file_path_from_manifest(domain_path, file_relative_path)
+
     def get_all_kakaotalk_messages(self, limit=1000):
         """모든 KakaoTalk 메시지를 가져옵니다. (최대 limit개의 메시지를 최신순으로 조회)"""
         if not self.conn_message_db:
@@ -352,19 +348,28 @@ class KakaoTalkAnalyzer:
             """
             # 쿼리 결과를 DataFrame 형태로 불러옴
             df = pd.read_sql_query(query, self.conn_message_db, params=(limit,))
-            
-            # 특수한 시간 형식을 일반 datetime 객체로 변환하는 함수
-
-            
+                       
             # 날짜 컬럼 변환
+            df['readAt'] = df['readAt'].apply(KakaoTalkAnalyzer.convert_date)
             df['sentAt'] = df['sentAt'].apply(KakaoTalkAnalyzer.convert_date)
+            df['message'] = df.apply(lambda row: decrypt_message(row['userId'], row['message']), axis=1)
+            df['attachment'] = df.apply(lambda row: decrypt_attachment(row['userId'], row['attachment']), axis=1)
 
             # 발신/수신 여부에 따라 방향 컬럼 추가
             if not self.my_id:
                 self.my_id = self.get_my_id()
             df['direction'] = df['userId'].apply(lambda x: '발신' if x == self.my_id else '수신')
-            # # 전화번호 포맷팅을 적용한 컬럼 추가
-            # df['formatted_contact'] = df['contact_id'].apply(self.format_phone_number)
+
+            # 연락처 column에 userId 대신 카카오톡 이름이 나오도록
+            cursor_talk_db = self.conn_talk_db.cursor()
+            query_for_get_user_name = "SELECT ZID, ZNAME FROM ZUSER"
+            cursor_talk_db.execute(query_for_get_user_name)
+            users = cursor_talk_db.fetchall()
+            # ZID와 ZNAME을 매핑한 딕셔너리 생성
+            user_dict = {user[0]: user[1] for user in users}  # {ZID: ZNAME}
+            # userId에 맞는 ZNAME으로 업데이트
+            df['userId'] = df['userId'].apply(lambda x: user_dict.get(x, x))  # userId에 해당하는 ZNAME으로 대체
+
             return df
         except Exception as e:
             print(f"전체 KakaoTalk 메시지 조회 오류: {e}")
