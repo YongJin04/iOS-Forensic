@@ -291,7 +291,7 @@ def display_kakaotalk(parent_frame, backup_path):
         else:
             # 각 대화 상대를 Listbox에 추가 (전화번호 형식 적용)
             for i, conversation in enumerate(conversations):
-                contact_listbox.insert(tk.END, conversation["chatId"])
+                contact_listbox.insert(tk.END, conversation["formatted_id"])
             
             # Listbox에서 대화 상대를 선택했을 때 show_conversation 함수가 호출되도록 이벤트 연결
             contact_listbox.bind('<<ListboxSelect>>', show_conversation)
