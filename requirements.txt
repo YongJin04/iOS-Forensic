@@ -10,3 +10,4 @@ biplist==1.0.3
 pycryptodome==3.22.0
 iphone_backup_decrypt==0.9.0
 fastpbkdf2
+pandas
