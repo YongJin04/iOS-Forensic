@@ -5,6 +5,17 @@ import pandas as pd
 from datetime import datetime, timedelta
 import hashlib
 
+# ikd의 decrypt_util.py에서 사용되는 복호화 함수들을 가져옵니다.
+# 실패하면 복호화되지 않은 원본 메시지를 반환합니다.
+try:
+    from ikd.decrypt_util import decrypt_message, decrypt_attachment
+except ImportError as ex:
+    print(f"Decrypt module import error: {ex}")
+    def decrypt_message(user_id, encrypted_msg: str) -> str:
+        return encrypted_msg
+    def decrypt_attachment(user_id, encrypted_msg: str) -> str:
+        return encrypted_msg
+
 # iOS 백업 파일 내에서 특정 파일의 실제 경로를 찾아주는 도우미 클래스입니다.
 class BackupPathHelper:
     """iOS 백업 파일 경로를 찾는 도우미 클래스"""
@@ -90,7 +101,7 @@ class KakaoTalkAnalyzer:
             row = cursor.fetchone()
             return row['ZID']
         except sqlite3.Error as e:
-            print(f"내 KakaoTalk 사용자 ID 조회 오류 발생생: {e}")
+            print(f"내 KakaoTalk 사용자 ID 조회 오류 발생: {e}")
             return ''
         
         
@@ -217,20 +228,30 @@ class KakaoTalkAnalyzer:
                 return []
         
         try:
+            cursor_talk_db = self.conn_talk_db.cursor()
+            query_for_get_user_name = "SELECT ZID, ZNAME FROM ZUSER"
+            cursor_talk_db.execute(query_for_get_user_name)
+            users = cursor_talk_db.fetchall()
+
             cursor = self.conn_message_db.cursor()
             # message 테이블과 handle 테이블을 JOIN하여 대화 상대 목록을 추출합니다.
             query = """
-            SELECT DISTINCT chatId
-            FROM Message
+            SELECT chatId, GROUP_CONCAT(DISTINCT userId) AS participants 
+            FROM Message 
+            GROUP BY chatId
             """
             cursor.execute(query)
             conversations = []
+
             # 각 대화 상대에 대해 전화번호 포맷팅 적용 후 리스트에 추가
             for row in cursor.fetchall():
+                participants = row['participants'].split(',')
+                # 여러 userId에 대해 순차적으로 user[0]과 비교
+                chat_title = ', '.join([user[1] for user in users if str(user[0]) in participants]) or 'None'
                 conversations.append({
                     'chatId': row['chatId'],
                     'handle_id': row['chatId'],
-                    'formatted_id':row['chatId'],
+                    'formatted_id': chat_title,
                 })
             return conversations
         except sqlite3.Error as e:
@@ -265,16 +286,19 @@ class KakaoTalkAnalyzer:
                 # if row["text"] and row["text"].strip() == "사진":
                 #     attachment_path = self.get_attachment_path(row["guid"])
                 
+
+                decrypted_message = decrypt_message(row['userId'], row['message'])
+                decrypted_attachment = decrypt_attachment(row['userId'], row['attachment'])
                 # 각 메시지 정보를 딕셔너리 형태로 저장
                 messages.append({
                     'serverLogId': row['serverLogId'],
                     'userId': row['userId'],
-                    'message': row['message'] if row['message'] else "",
+                    'message': decrypted_message if decrypted_message else (row['message'] if row['message'] else ''),
                     'sentAt': KakaoTalkAnalyzer.convert_date(row['sentAt']),
                     'sentAt_string': KakaoTalkAnalyzer.format_date(KakaoTalkAnalyzer.convert_date(row['sentAt'])),
                     'is_from_me': True if row['userId'] == self.my_id else False,
                     'direction': '발신' if row['userId'] == self.my_id else '수신',
-                    'attachment':  row['attachment']
+                    'attachment': decrypted_attachment if decrypted_attachment else (row['attachment'] if row['attachment'] else ''),
                 })
             
             return messages
