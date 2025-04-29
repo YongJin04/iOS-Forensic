@@ -9,5 +9,5 @@ matplotlib==3.10.1
 biplist==1.0.3
 pycryptodome==3.22.0
 iphone_backup_decrypt==0.9.0
-fastpbkdf2
-pandas
+fastpbkdf2==0.2
+pandas==2.2.3
