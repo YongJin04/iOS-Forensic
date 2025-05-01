@@ -246,14 +246,18 @@ class KakaoTalkAnalyzer:
 
             # 각 대화 상대에 대해 전화번호 포맷팅 적용 후 리스트에 추가
             for row in cursor.fetchall():
-                participants = row['participants'].split(',')
-                # 여러 userId에 대해 순차적으로 user[0]과 비교
+                # None 대비
+                participants_raw = row['participants'] or ''
+                participants = participants_raw.split(',') if participants_raw else []
+
+                # 나머지는 동일
                 chat_title = ', '.join([user[1] for user in users if str(user[0]) in participants]) or 'None'
                 conversations.append({
                     'chatId': row['chatId'],
                     'handle_id': row['chatId'],
                     'formatted_id': chat_title,
                 })
+
             return conversations
         except sqlite3.Error as e:
             print(f"대화 목록 조회 오류: {e}")
