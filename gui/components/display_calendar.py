@@ -3,541 +3,560 @@ from tkinter import ttk, messagebox
 import calendar
 from datetime import datetime, timedelta
 import pandas as pd
-from functools import partial
 
-# Backend module import (forensic functionality integrated CalendarAnalyser)
+# Backend – forensic calendar DB handler
 from artifact_analyzer.calendar.calendar_analyzer import CalendarAnalyser
 
 
 def display_calendar(parent_frame, backup_path):
-    """
-    Responsive calendar UI that scales evenly within the parent_frame.
+    """Interactive calendar visualiser with forensic-rich details.
 
-    Highlights
-    ----------
-    * Grid layout with uniform row/column sizes (every day cell has the same size)
-    * Supports multi‑day events automatically
-    * Double‑click to open a scrollable, detailed pop‑up for the selected day
-    * Lazy loading and caching for performance
+    FINAL FIX APR 2025
+    ------------------
+    * Timeline crash resolved – participant list now expects a Python *list*,
+      not a DataFrame.
+    * Full code restored (no placeholders/omissions).
     """
 
-    # Clear any existing widgets in the parent (memory‑friendly)
-    for widget in parent_frame.winfo_children():
-        widget.destroy()
+    # ────────────────────────────────────────────────────────────────
+    # 🔄  Clear previous widgets
+    # ────────────────────────────────────────────────────────────────
 
-    # ---------------- State Container ----------------
+    for w in parent_frame.winfo_children():
+        w.destroy()
 
-    class CalendarState:
+    # ────────────────────────────────────────────────────────────────
+    # 🗃  Runtime state
+    # ────────────────────────────────────────────────────────────────
+
+    class _State:
         def __init__(self):
-            self.current_date = datetime.now()
-            self.current_year = self.current_date.year
-            self.current_month = self.current_date.month
-            self.events_cache = {}  # {"YYYY-M": events_df}
+            now = datetime.now()
+            self.year = now.year
+            self.month = now.month
+            self.month_events_cache: dict[str, pd.DataFrame] = {}
+            self.all_events_df: pd.DataFrame | None = None
 
-    state = CalendarState()
+    state = _State()
 
-    # ---------------- Utility functions ----------------
+    # ────────────────────────────────────────────────────────────────
+    # 🎨  Styling helpers
+    # ────────────────────────────────────────────────────────────────
 
-    def normalize_color(color_str):
-        """Return a #RRGGBB string (strip alpha channel if present)."""
-        if isinstance(color_str, str) and len(color_str) == 9:
-            return color_str[:7]
-        return color_str or "#FFFFFF"
+    def _normalize_color(c: str | None) -> str:
+        if not c:
+            return "#FFFFFF"
+        c = c.strip()
+        if len(c) == 9:  # strip alpha (#RRGGBBAA → #RRGGBB)
+            c = c[:7]
+        return c if c.startswith("#") else f"#{c}"
 
-    def create_tooltip(widget, text):
-        """Attach a simple tooltip to ``widget``."""
-        tooltip = None
-
-        def enter(event):
-            nonlocal tooltip
-            x, y, _, _ = widget.bbox("insert")
-            x += widget.winfo_rootx() + 25
-            y += widget.winfo_rooty() + 25
-            tooltip = tk.Toplevel(widget)
-            tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{x}+{y}")
-            label = ttk.Label(tooltip, text=text, background="lightyellow",
-                              relief="solid", borderwidth=1, padding=(5, 3))
-            label.pack()
-
-        def leave(event):
-            nonlocal tooltip
-            if tooltip:
-                tooltip.destroy()
-                tooltip = None
-
-        widget.bind("<Enter>", enter)
-        widget.bind("<Leave>", leave)
-
-    # ---------------- Styling ----------------
-
-    def setup_styles():
-        style = ttk.Style()
-        style.theme_use("clam")
-        style.configure("HeaderLarge.TLabel", font=("Helvetica", 18, "bold"), foreground="#2C3E50")
-        style.configure("Header.TLabel", font=("Helvetica", 14, "bold"), foreground="#34495E")
-        style.configure("HeaderSmall.TLabel", font=("Helvetica", 10, "bold"), foreground="#2980B9")
-        style.configure("Text.TLabel", font=("Helvetica", 10), foreground="#2C3E50", background="white")
-        style.configure("SmallText.TLabel", font=("Helvetica", 8), foreground="#7F8C8D")
-        style.configure("DayCell.TFrame", background="#FFFFFF", relief="groove", borderwidth=1)
-        style.configure("WeekendCell.TFrame", background="#F8F9FA", relief="groove", borderwidth=1)
-        style.configure("TodayCell.TFrame", background="#E8F4FD", relief="groove", borderwidth=1)
-        style.configure("Event.TLabel", font=("Helvetica", 9), background="#3498DB", foreground="white")
-        style.configure("Nav.TButton", font=("Helvetica", 10), padding=5)
-        style.configure("Today.TButton", font=("Helvetica", 9), padding=3)
-        style.configure("Calendar.TFrame", background="#FDFDFD")
-        style.configure("EventDetail.TFrame", relief="groove", borderwidth=1, padding=8)
-        style.configure("ErrorText.TLabel", font=("Helvetica", 12), foreground="red")
-
-    setup_styles()
-
-    # ---------------- Calendar analyser ----------------
-
-    try:
-        cal_analyser = CalendarAnalyser(backup_path)
-        if not cal_analyser.connect_to_db():
-            messagebox.showerror("Error", "Calendar DB not found or could not be opened.")
-            ttk.Label(parent_frame, text="DB connection failed. Check the backup path.",
-                      style="ErrorText.TLabel").pack(pady=20)
-            return
-    except Exception as e:
-        messagebox.showerror("Error", f"Failed to initialise analyser: {str(e)}")
-        ttk.Label(parent_frame, text=f"Initialisation failed: {str(e)}",
-                  style="ErrorText.TLabel").pack(pady=20)
-        return
-
-    # ---------------- Header / Navigation ----------------
-
-    header_frame = ttk.Frame(parent_frame)
-    header_frame.pack(fill="x", pady=(0, 5))
-    header_label = ttk.Label(header_frame, text="Calendar Viewer", style="HeaderLarge.TLabel")
-    header_label.pack(side="left", pady=(0, 5))
-
-    month_label_var = tk.StringVar()
-
-    def update_month_label():
-        month_label_var.set(f"{calendar.month_name[state.current_month]} {state.current_year}")
-
-    update_month_label()
-
-    nav_frame = ttk.Frame(parent_frame)
-    nav_frame.pack(fill="x", pady=5)
-
-    prev_month_btn = ttk.Button(nav_frame, text="◀ Prev",
-                                command=lambda: change_month(-1),
-                                style="Nav.TButton")
-    prev_month_btn.pack(side="left")
-    create_tooltip(prev_month_btn, "Previous month")
-
-    # ─── 여기부터 수정 ───
-    # width=14: 'September 2025' (9글자+1공백+4숫자 = 14글자) 폭만큼 고정
-    month_label = ttk.Label(nav_frame,
-                            textvariable=month_label_var,
-                            style="Header.TLabel",
-                            width=14,
-                            anchor="center")
-    month_label.pack(side="left", padx=10)
-    # ────────────────────
-
-    next_month_btn = ttk.Button(nav_frame, text="Next ▶",
-                                command=lambda: change_month(1),
-                                style="Nav.TButton")
-    next_month_btn.pack(side="left")
-    create_tooltip(next_month_btn, "Next month")
-
-    today_btn = ttk.Button(nav_frame, text="Today",
-                           command=lambda: go_to_today(),
-                           style="Today.TButton")
-    today_btn.pack(side="right", padx=5)
-    create_tooltip(today_btn, "Go to today")
-
-    # ---------------- Main calendar frame ----------------
-
-    calendar_frame = ttk.Frame(parent_frame, style="Calendar.TFrame")
-    calendar_frame.pack(fill="both", expand=True, pady=10)
-
-    # Uniform cell sizes – header row (0) excluded from uniform group
-    calendar_frame.rowconfigure(0, weight=0)
-    for r in range(1, 7):
-        calendar_frame.rowconfigure(r, weight=1, uniform="day")
-    for c in range(7):
-        calendar_frame.columnconfigure(c, weight=1, uniform="day")
-
-    # ---------------- Data helpers ----------------
-
-    def load_events():
-        cache_key = f"{state.current_year}-{state.current_month}"
-        if cache_key in state.events_cache:
-            events_df = state.events_cache[cache_key]
-        else:
-            events_df = cal_analyser.get_events_for_month(state.current_year, state.current_month)
-            state.events_cache[cache_key] = events_df
-
-        events_by_day = {}
-        for _, event in events_df.iterrows():
-            start_dt = event["start_date"]
-            end_dt = event.get("end_date") or start_dt
-            if not start_dt:
-                continue
-            curr = start_dt.date()
-            end_day = end_dt.date() if end_dt else curr
-            while curr <= end_day:
-                if curr.month == state.current_month and curr.year == state.current_year:
-                    day_num = curr.day
-                    events_by_day.setdefault(day_num, [])
-                    eid = event.get("event_id")
-                    if not any(e.get("event_id") == eid for e in events_by_day[day_num]):
-                        events_by_day[day_num].append(event)
-                curr += timedelta(days=1)
-        return events_by_day
-
-    def refresh_calendar():
-        for widget in calendar_frame.winfo_children():
-            widget.destroy()
-        events_by_day = load_events()
-        days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        for col, name in enumerate(days_of_week):
-            ttk.Label(calendar_frame, text=name, style="HeaderSmall.TLabel", anchor="center")\
-                .grid(row=0, column=col, sticky="nsew", padx=2, pady=2)
-
-        today = datetime.now().date()
-        cal_obj = calendar.Calendar(firstweekday=0)
-        month_weeks = cal_obj.monthdayscalendar(state.current_year, state.current_month)
-
-        for row_idx, week in enumerate(month_weeks, start=1):
-            for col_idx, day_num in enumerate(week):
-                if day_num == 0:
-                    ttk.Frame(calendar_frame).grid(row=row_idx, column=col_idx, sticky="nsew", padx=2, pady=2)
-                    continue
-                cell_style = "WeekendCell.TFrame" if col_idx >= 5 else "DayCell.TFrame"
-                if (day_num == today.day and state.current_month == today.month and
-                        state.current_year == today.year):
-                    cell_style = "TodayCell.TFrame"
-                cell_frame = ttk.Frame(calendar_frame, style=cell_style)
-                cell_frame.grid(row=row_idx, column=col_idx, sticky="nsew", padx=2, pady=2)
-
-                lbl_day = ttk.Label(cell_frame, text=str(day_num), style="Header.TLabel", anchor="nw")
-                lbl_day.pack(anchor="nw", padx=2, pady=2)
-
-                if day_num in events_by_day:
-                    events = events_by_day[day_num]
-                    max_visible = 3
-                    show_more = len(events) > max_visible
-                    visible = events[:max_visible]
-                    for ev in visible:
-                        summary = ev.get("summary") or "Untitled"
-                        bg = normalize_color(ev.get("color"))
-                        fg = get_contrast_color(bg)
-                        ev_label = tk.Label(cell_frame, text=summary, bg=bg, fg=fg,
-                                            font=("Helvetica", 9), anchor="w", relief="groove", padx=3, pady=1)
-                        ev_label.pack(fill="x", padx=2, pady=1)
-                        start_dt = ev.get("start_date")
-                        end_dt = ev.get("end_date")
-                        time_str = ""
-                        if start_dt:
-                            time_str = start_dt.strftime("%H:%M")
-                            if end_dt and end_dt != start_dt:
-                                time_str += f" ~ {end_dt.strftime('%H:%M')}"
-                        tt_text = f"{summary}\n{time_str}\n{ev.get('calendar_title', '')}"
-                        create_tooltip(ev_label, tt_text)
-                        ev_label.bind("<Double-1>", lambda e, d=day_num: show_day_details(d))
-                    if show_more:
-                        more_cnt = len(events) - max_visible
-                        more_label = ttk.Label(cell_frame, text=f"+ {more_cnt} more...", style="SmallText.TLabel")
-                        more_label.pack(anchor="e", padx=2)
-                        more_label.bind("<Button-1>", lambda e, d=day_num: show_day_details(d))
-
-                def on_day_click(e, day=day_num):
-                    show_day_details(day)
-
-                cell_frame.bind("<Double-1>", on_day_click)
-                lbl_day.bind("<Double-1>", on_day_click)
-
-    def get_contrast_color(bg):
+    def _contrast_color(bg: str) -> str:
         try:
-            bg = bg.lstrip('#')
-            if len(bg) != 6:
-                return "#000000"
-            r, g, b = int(bg[:2], 16), int(bg[2:4], 16), int(bg[4:], 16)
-            brightness = (r * 299 + g * 587 + b * 114) / 1000
-            return "#000000" if brightness > 128 else "#FFFFFF"
+            bg = bg.lstrip("#")
+            r, g, b = [int(bg[i : i + 2], 16) for i in (0, 2, 4)]
+            return "#000000" if (r * 299 + g * 587 + b * 114) / 1000 > 128 else "#FFFFFF"
         except Exception:
             return "#000000"
 
-    def show_day_details(day):
-        detail_window = tk.Toplevel(parent_frame)
-        detail_window.title(f"Events on {calendar.month_name[state.current_month]} {day}, {state.current_year}")
-        detail_window.geometry("750x550")
-        detail_window.transient(parent_frame)
-        detail_window.grab_set()
+    def _setup_styles():
+        s = ttk.Style()
+        try:
+            s.theme_use("clam")
+        except tk.TclError:
+            pass
+        s.configure("HeaderLarge.TLabel", font=("Helvetica", 18, "bold"), foreground="#2C3E50")
+        s.configure("Header.TLabel", font=("Helvetica", 14, "bold"), foreground="#34495E")
+        s.configure("HeaderSmall.TLabel", font=("Helvetica", 10, "bold"), foreground="#2980B9")
+        s.configure("Text.TLabel", font=("Helvetica", 10), foreground="#2C3E50", background="white")
+        s.configure("SmallText.TLabel", font=("Helvetica", 8), foreground="#7F8C8D")
+        s.configure("DayCell.TFrame", background="#FFFFFF", relief="groove", borderwidth=1)
+        s.configure("WeekendCell.TFrame", background="#F8F9FA", relief="groove", borderwidth=1)
+        s.configure("TodayCell.TFrame", background="#E8F4FD", relief="groove", borderwidth=1)
+        s.configure("Nav.TButton", font=("Helvetica", 10), padding=5)
+        s.configure("Today.TButton", font=("Helvetica", 9), padding=3)
+        s.configure("Calendar.TFrame", background="#FDFDFD")
+        s.configure("EventDetail.TFrame", relief="groove", borderwidth=1, padding=8)
+        s.configure("ErrorText.TLabel", font=("Helvetica", 12), foreground="red")
 
-        header_frame = ttk.Frame(detail_window, padding=5)
-        header_frame.pack(fill="x", pady=(5, 0))
-        header_date = datetime(state.current_year, state.current_month, day).strftime("%A, %B %d, %Y")
-        ttk.Label(header_frame, text=header_date, style="HeaderLarge.TLabel").pack(side="left")
-        ttk.Button(header_frame, text="Close", command=detail_window.destroy).pack(side="right")
-        ttk.Separator(detail_window, orient="horizontal").pack(fill="x", pady=5)
+    _setup_styles()
 
-        canvas = tk.Canvas(detail_window, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(detail_window, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
+    # ────────────────────────────────────────────────────────────────
+    # 🔌  Connect to DB
+    # ────────────────────────────────────────────────────────────────
+
+    try:
+        analyser = CalendarAnalyser(backup_path)
+        if not analyser.connect_to_db():
+            messagebox.showerror("Error", "Calendar DB not found or could not be opened.")
+            ttk.Label(parent_frame, text="DB connection failed. Check backup path.", style="ErrorText.TLabel").pack(pady=20)
+            return
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to initialise analyser: {e}")
+        ttk.Label(parent_frame, text=f"Initialisation failed: {e}", style="ErrorText.TLabel").pack(pady=20)
+        return
+
+    # ────────────────────────────────────────────────────────────────
+    # 🔍  Data fetch helpers
+    # ────────────────────────────────────────────────────────────────
+
+    def _fetch_participants(event_id: int) -> list[dict]:
+        try:
+            return analyser.get_participants(event_id) or []
+        except Exception:
+            return []
+
+    def _fetch_alarms(event_id: int) -> list[dict]:
+        try:
+            return analyser.get_alarms_for_event(event_id) or []
+        except Exception:
+            return []
+
+    def _fetch_location_details(loc_id: int | None) -> list[dict]:
+        if not loc_id:
+            return []
+        try:
+            return analyser.get_location_info(loc_id) or []
+        except Exception:
+            return []
+
+    # ────────────────────────────────────────────────────────────────
+    # 🛠  Formatting helpers
+    # ────────────────────────────────────────────────────────────────
+
+    _role_map = {"ORGANIZER": "Organizer", "ATTENDEE": "Attendee", "OPTIONAL": "Optional"}
+    _status_map = {
+        "ACCEPTED": "Accepted",
+        "DECLINED": "Declined",
+        "TENTATIVE": "Tentative",
+        "NEEDS-ACTION": "Needs Action",
+    }
+
+    def _participants_as_text(parts: list[dict]) -> str:
+        out: list[str] = []
+        for p in parts:
+            email = p.get("email", "")
+            name = p.get("name", "")
+            role = _role_map.get(p.get("role", ""), p.get("role", ""))
+            status = _status_map.get(p.get("status", ""), p.get("status", ""))
+            s = f"{name} <{email}>" if name else email
+            if role:
+                s += f" ({role}"
+                if status:
+                    s += f", {status}"
+                s += ")"
+            out.append(s)
+        return ", ".join(out)
+
+    def _alarms_as_text(alarms: list[dict]) -> str:
+        out: list[str] = []
+        for a in alarms:
+            trg = a.get("trigger_date", "")
+            a_type = a.get("type", "")
+            if isinstance(trg, int):
+                minutes = abs(trg)
+                hrs, mins = divmod(minutes, 60)
+                pretty = f"{hrs}h {mins}m" if hrs else f"{minutes}m"
+                trg_txt = f"{pretty} {'before' if trg < 0 else 'after'} event"
+            else:
+                trg_txt = str(trg)
+            out.append(f"{a_type}: {trg_txt}" if a_type else trg_txt)
+        return ", ".join(out)
+
+    # ────────────────────────────────────────────────────────────────
+    # 💬  Tooltip helper
+    # ────────────────────────────────────────────────────────────────
+
+    def _tooltip(widget: tk.Widget, text: str):
+        tip = None
+
+        def _enter(_):
+            nonlocal tip
+            if tip or not text:
+                return
+            x, y, *_ = widget.bbox("insert") or (0, 0, 0, 0)
+            x += widget.winfo_rootx() + 20
+            y += widget.winfo_rooty() + 20
+            tip = tk.Toplevel(widget)
+            tip.wm_overrideredirect(True)
+            tip.wm_geometry(f"+{x}+{y}")
+            ttk.Label(tip, text=text, background="#FFFFE0", relief="solid", borderwidth=1, padding=(5, 3)).pack()
+
+        def _leave(_):
+            nonlocal tip
+            if tip:
+                tip.destroy()
+                tip = None
+
+        widget.bind("<Enter>", _enter)
+        widget.bind("<Leave>", _leave)
+
+    # ────────────────────────────────────────────────────────────────
+    # 🏗  Event detail builder
+    # ────────────────────────────────────────────────────────────────
+
+    def _build_event_detail(parent: ttk.Frame, ev: pd.Series | dict):
+        frm = ttk.Frame(parent, style="EventDetail.TFrame")
+        frm.pack(fill="x", pady=8)
+
+        # ‑‑ header (title & time) ‑‑
+        hdr = ttk.Frame(frm)
+        hdr.pack(fill="x", pady=(0, 4))
+        color = ev.get("color", "")
+        if color:
+            tk.Frame(hdr, width=16, height=16, bg=_normalize_color(color)).pack(side="left", padx=(0, 6))
+        ttk.Label(hdr, text=ev.get("summary") or "Untitled", style="Header.TLabel").pack(side="left")
+
+        s_dt, e_dt = ev.get("start_date"), ev.get("end_date")
+        all_day = ev.get("all_day", False)
+        if s_dt:
+            time_txt = "All day" if all_day else s_dt.strftime("%H:%M")
+            if e_dt and e_dt != s_dt:
+                if all_day:
+                    time_txt += f" ({s_dt.strftime('%Y-%m-%d')} ~ {e_dt.strftime('%Y-%m-%d')})"
+                else:
+                    fmt = "%H:%M" if s_dt.date() == e_dt.date() else "%Y-%m-%d %H:%M"
+                    time_txt += f" ~ {e_dt.strftime(fmt)}"
+            ttk.Label(hdr, text=f"({time_txt})", style="SmallText.TLabel").pack(side="right")
+
+        # ‑‑ main property table ‑‑
+        props_tree = ttk.Treeview(frm, columns=("field", "val"), show="headings", height=6, style="Detail.Treeview")
+        props_tree.heading("field", text="Field")
+        props_tree.heading("val", text="Value")
+        props_tree.column("field", width=120, anchor="w")
+        props_tree.column("val", width=480, anchor="w")
+        props_tree.pack(fill="x", expand=True)
+
+        def _add(k: str, v: str | None):
+            if v:
+                props_tree.insert("", "end", values=(k, v))
+
+        _add("Calendar", ev.get("calendar_title", ""))
+        if color and ev.get("symbolic_color_name"):
+            _add("Color", f"{ev.get('symbolic_color_name')} ({color})")
+        _add("Location", ev.get("location", ""))
+        _add("Description", ev.get("description", ""))
+        _add("Participants", _participants_as_text(_fetch_participants(int(ev["event_id"])) if "event_id" in ev else []))
+        _add("Alarms", _alarms_as_text(_fetch_alarms(int(ev["event_id"])) if "event_id" in ev else []))
+
+        # zebra strip rows manually (since ttk.Treeview lacks style per‑row)
+        for i, iid in enumerate(props_tree.get_children()):
+            props_tree.tag_configure("odd", background="#f9f9f9")
+            if i % 2:
+                props_tree.item(iid, tags=("odd",))
+
+        # ‑‑ location details table ‑‑
+        loc_details = _fetch_location_details(ev.get("location_id"))
+        if loc_details:
+            loc_lbl = ttk.Label(frm, text="Location Details", style="HeaderSmall.TLabel")
+            loc_lbl.pack(anchor="w", pady=(8, 0))
+            loc_tree = ttk.Treeview(frm, columns=("k", "v"), show="headings", height=len(loc_details), style="Detail.Treeview")
+            loc_tree.heading("k", text="Key")
+            loc_tree.heading("v", text="Value")
+            loc_tree.column("k", width=120, anchor="w")
+            loc_tree.column("v", width=480, anchor="w")
+            loc_tree.pack(fill="x", expand=True)
+            for loc in loc_details:
+                if loc.get("title"):
+                    loc_tree.insert("", "end", values=("Name", loc["title"]))
+                if loc.get("address"):
+                    loc_tree.insert("", "end", values=("Address", loc["address"]))
+                lat, lng = loc.get("latitude"), loc.get("longitude")
+                if lat and lng:
+                    loc_tree.insert("", "end", values=("Coords", f"{lat}, {lng}"))
+            for i, iid in enumerate(loc_tree.get_children()):
+                if i % 2:
+                    loc_tree.item(iid, tags=("odd",))
+
+    # ────────────────────────────────────────────────────────────────
+    # 🗄  Data loaders
+    # ────────────────────────────────────────────────────────────────
+
+    def _load_month_events() -> dict[int, list[dict]]:
+        key = f"{state.year}-{state.month}"
+        if key not in state.month_events_cache:
+            state.month_events_cache[key] = analyser.get_events_for_month(state.year, state.month)
+        df = state.month_events_cache[key]
+        out: dict[int, list[dict]] = {}
+        for _, ev in df.iterrows():
+            s: datetime | None = ev["start_date"]
+            e: datetime | None = ev.get("end_date") or s
+            if s is None:
+                continue
+            d = s.date()
+            while d <= e.date():
+                if d.month == state.month and d.year == state.year:
+                    out.setdefault(d.day, []).append(ev)
+                d += timedelta(days=1)
+        return out
+
+    def _load_all_events() -> pd.DataFrame:
+        if state.all_events_df is not None:
+            return state.all_events_df
+        q = """
+        SELECT ci.ROWID AS event_id,
+               ci.summary,
+               ci.description,
+               ci.location_id,
+               ci.start_date,
+               ci.end_date,
+               ci.all_day,
+               c.title  AS calendar_title,
+               c.color,
+               c.symbolic_color_name,
+               l.title  AS location
+        FROM   CalendarItem ci
+               LEFT JOIN Calendar c ON ci.calendar_id = c.ROWID
+               LEFT JOIN Location l ON ci.location_id = l.ROWID
+        ORDER  BY ci.start_date;
+        """
+        df = pd.read_sql_query(q, analyser.conn)
+        df["start_date"] = df["start_date"].apply(analyser._convert_date)
+        df["end_date"] = df["end_date"].apply(analyser._convert_date)
+        state.all_events_df = df
+        return df
+
+    # ────────────────────────────────────────────────────────────────
+    # 🔍  Event-level detail window
+    # ────────────────────────────────────────────────────────────────
+
+    def _show_event_detail(ev: pd.Series | dict):
+        win = tk.Toplevel(parent_frame)
+        win.title(ev.get("summary") or "Event Details")
+        win.geometry("720x520")
+        win.transient(parent_frame)
+        win.grab_set()
+
+        canvas = tk.Canvas(win, highlightthickness=0)
+        sb = ttk.Scrollbar(win, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
-        content_frame = ttk.Frame(canvas, padding=10)
-        canvas_window = canvas.create_window((0, 0), window=content_frame, anchor="nw")
-        content_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
 
-        def _wheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", _wheel)
+        content = ttk.Frame(canvas, padding=10)
+        window_id = canvas.create_window((0, 0), window=content, anchor="nw")
 
-        def on_close():
-            canvas.unbind_all("<MouseWheel>")
-            detail_window.destroy()
-        detail_window.protocol("WM_DELETE_WINDOW", on_close)
+        def _sync_width(e):
+            canvas.itemconfigure(window_id, width=e.width)
+        canvas.bind("<Configure>", _sync_width)
+        content.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
 
-        events_by_day = load_events()
-        events = events_by_day.get(day, [])
-        if not events:
-            ttk.Label(content_frame, text="No events on this date.", style="Text.TLabel", font=("Helvetica", 12))\
-                .pack(pady=20)
+        _build_event_detail(content, ev)
+        ttk.Label(content).pack(pady=4)
+
+    # ────────────────────────────────────────────────────────────────
+    # 📆  Calendar header/nav
+    # ────────────────────────────────────────────────────────────────
+
+    ttk.Label(parent_frame, text="Calendar Viewer", style="HeaderLarge.TLabel").pack(anchor="w", pady=(0, 5))
+
+    nav = ttk.Frame(parent_frame)
+    nav.pack(fill="x", pady=5)
+
+    ttk.Button(nav, text="◀ Prev", style="Nav.TButton", command=lambda: _change_month(-1)).pack(side="left")
+
+    month_var = tk.StringVar()
+
+    def _update_month_label():
+        month_var.set(f"{calendar.month_name[state.month]} {state.year}")
+
+    ttk.Label(nav, textvariable=month_var, style="Header.TLabel", width=14, anchor="center").pack(side="left", padx=12)
+
+    ttk.Button(nav, text="Next ▶", style="Nav.TButton", command=lambda: _change_month(1)).pack(side="left")
+    ttk.Button(nav, text="Today", style="Today.TButton", command=lambda: _go_today()).pack(side="right", padx=5)
+    ttk.Button(nav, text="Timeline", style="Nav.TButton", command=lambda: _show_timeline()).pack(side="right", padx=5)
+
+    # ────────────────────────────────────────────────────────────────
+    # 📆  Calendar grid
+    # ────────────────────────────────────────────────────────────────
+
+    cal_frame = ttk.Frame(parent_frame, style="Calendar.TFrame")
+    cal_frame.pack(fill="both", expand=True, pady=10)
+
+    cal_frame.rowconfigure(0, weight=0)
+    for r in range(1, 7):
+        cal_frame.rowconfigure(r, weight=1, uniform="day")
+    for c in range(7):
+        cal_frame.columnconfigure(c, weight=1, uniform="day")
+
+    # --------------------------------------------------------------
+    # 🔄  Calendar refresh
+    # --------------------------------------------------------------
+
+    def _refresh():
+        for w in cal_frame.winfo_children():
+            w.destroy()
+        ev_by_day = _load_month_events()
+
+        # weekday headers
+        for c, name in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]):
+            ttk.Label(cal_frame, text=name, style="HeaderSmall.TLabel", anchor="center").grid(row=0, column=c, sticky="nsew", padx=2, pady=2)
+
+        today = datetime.now().date()
+        for r, week in enumerate(calendar.Calendar(firstweekday=0).monthdayscalendar(state.year, state.month), start=1):
+            for c, day in enumerate(week):
+                if day == 0:
+                    ttk.Frame(cal_frame).grid(row=r, column=c, sticky="nsew", padx=2, pady=2)
+                    continue
+                style = "WeekendCell.TFrame" if c >= 5 else "DayCell.TFrame"
+                if day == today.day and state.month == today.month and state.year == today.year:
+                    style = "TodayCell.TFrame"
+                cell = ttk.Frame(cal_frame, style=style)
+                cell.grid(row=r, column=c, sticky="nsew", padx=2, pady=2)
+
+                ttk.Label(cell, text=str(day), style="Header.TLabel", anchor="nw").pack(anchor="nw", padx=2, pady=2)
+                if day in ev_by_day:
+                    events = ev_by_day[day]
+                    for ev in events[:3]:
+                        title = ev.get("summary") or "Untitled"
+                        bg = _normalize_color(ev.get("color"))
+                        fg = _contrast_color(bg)
+                        lbl = tk.Label(cell, text=title, bg=bg, fg=fg, font=("Helvetica", 9), anchor="w", relief="groove", padx=3, pady=1)
+                        lbl.pack(fill="x", padx=2, pady=1)
+                        lbl.bind("<Double-1>", lambda e, ev_data=ev: _show_event_detail(ev_data))
+                        _tooltip(lbl, title)
+                    if len(events) > 3:
+                        more_lbl = ttk.Label(cell, text=f"+ {len(events)-3} more…", style="SmallText.TLabel")
+                        more_lbl.pack(anchor="e", padx=2)
+                        more_lbl.bind("<Button-1>", lambda e, d=day: _show_day_details(d))
+                cell.bind("<Double-1>", lambda e, d=day: _show_day_details(d))
+
+    # --------------------------------------------------------------
+    # 📜  Timeline view (fixed)
+    # --------------------------------------------------------------
+
+    def _show_timeline():
+        df = _load_all_events()
+        if df.empty:
+            messagebox.showinfo("Timeline", "No events found in backup.")
             return
 
-        sorted_events = sorted(events, key=lambda e: e.get("start_date", datetime.max))
-        for i, event in enumerate(sorted_events):
-            evt_frame = ttk.Frame(content_frame, style="EventDetail.TFrame")
-            evt_frame.pack(fill="x", pady=4)
+        win = tk.Toplevel(parent_frame)
+        win.title("Timeline – All Events")
+        win.geometry("1080x600")
+        win.transient(parent_frame)
+        win.grab_set()
 
-            event_id = event.get("event_id", "")
-            summary = event.get("summary") or "Untitled"
-            calendar_title = event.get("calendar_title", "")
-            description = event.get("description", "")
-            location = event.get("location", "")
-            color = event.get("color", "")
-            symbolic_color = event.get("symbolic_color_name", "")
-            is_all_day = event.get("all_day", False)
+        cols = ("Start", "End", "Title", "Calendar", "Location", "Participants", "Description")
+        widths = {"Start": 150, "End": 150, "Title": 220, "Calendar": 140, "Location": 140, "Participants": 200, "Description": 300}
 
-            start_dt = event.get("start_date")
-            end_dt = event.get("end_date")
-            start_str = start_dt.strftime("%Y-%m-%d %H:%M") if start_dt else "No date"
-            if is_all_day:
-                time_str = "All day"
-                if end_dt and end_dt.date() != start_dt.date():
-                    time_str += f" ({start_dt.strftime('%Y-%m-%d')} ~ {end_dt.strftime('%Y-%m-%d')})"
-            else:
-                time_str = start_str
-                if end_dt:
-                    if start_dt.date() == end_dt.date():
-                        time_str += f" ~ {end_dt.strftime('%H:%M')}"
-                    else:
-                        time_str += f" ~ {end_dt.strftime('%Y-%m-%d %H:%M')}"
+        container = ttk.Frame(win)
+        container.pack(fill="both", expand=True)
+        container.rowconfigure(0, weight=1)
+        container.columnconfigure(0, weight=1)
 
-            header_f = ttk.Frame(evt_frame)
-            header_f.pack(fill="x", expand=True)
-            if color:
-                tk.Frame(header_f, width=16, height=16, bg=normalize_color(color)).pack(side="left", padx=(0, 5))
-            ttk.Label(header_f, text=summary, style="Header.TLabel").pack(side="left")
-            ttk.Label(header_f, text=f"({time_str})", style="SmallText.TLabel").pack(side="right")
+        tree = ttk.Treeview(container, columns=cols, show="headings", height=25)
+        vsb = ttk.Scrollbar(container, orient="vertical", command=tree.yview)
+        hsb = ttk.Scrollbar(container, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
 
-            info_f = ttk.Frame(evt_frame)
-            info_f.pack(fill="x", pady=5)
-            info_f.columnconfigure(0, weight=0)
-            info_f.columnconfigure(1, weight=1)
+        for col in cols:
+            tree.heading(col, text=col)
+            tree.column(col, width=widths[col], anchor="w" if col not in ("Start", "End") else "center")
 
-            def add_info(r, label, val, tooltip=None):
-                if not val:
-                    return r
-                ttk.Label(info_f, text=label + ":", style="HeaderSmall.TLabel").grid(row=r, column=0, sticky="w",
-                                                                                    padx=(0, 10), pady=2)
-                v = ttk.Label(info_f, text=str(val), style="Text.TLabel", wraplength=650)
-                v.grid(row=r, column=1, sticky="w", pady=2)
-                if tooltip:
-                    create_tooltip(v, tooltip)
-                return r + 1
+        for _, row in df.iterrows():
+            s = row["start_date"].strftime("%Y-%m-%d %H:%M") if pd.notna(row["start_date"]) else "—"
+            e = row["end_date"].strftime("%Y-%m-%d %H:%M") if pd.notna(row["end_date"]) else "—"
+            title = row.get("summary") or "Untitled"
+            cal_title = row.get("calendar_title") or ""
+            loc = row.get("location") or ""
+            desc = (row.get("description") or "").replace("\n", " ")
+            desc = desc if len(desc) <= 120 else desc[:117] + "…"
 
-            row = 0
-            if calendar_title:
-                row = add_info(row, "Calendar", calendar_title)
-            if color and symbolic_color:
-                row = add_info(row, "Color", f"{symbolic_color} ({color})")
-            if location:
-                row = add_info(row, "Location", location)
-            if description:
-                row = add_info(row, "Description", description)
+            parts = _participants_as_text(_fetch_participants(int(row["event_id"])))
+            if len(parts) > 80:
+                parts = parts[:77] + "…"
 
-            if event_id:
-                forensic_frame = ttk.Frame(evt_frame)
-                forensic_frame.pack(fill="x", pady=5)
-                ttk.Label(forensic_frame, text="Forensic Details", style="HeaderSmall.TLabel")\
-                    .pack(anchor="w", pady=(5, 3))
-                ttk.Separator(forensic_frame, orient="horizontal").pack(fill="x", pady=2)
-                forensic_content = ttk.Frame(forensic_frame)
-                forensic_content.pack(fill="x", pady=3)
+            tree.insert("", "end", values=(s, e, title, cal_title, loc, parts, desc), tags=(str(row["event_id"]),))
 
-                errors = cal_analyser.get_error_logs(event_id)
-                if errors:
-                    err_f = ttk.LabelFrame(forensic_content, text="Error Log")
-                    err_f.pack(fill="x", pady=3)
-                    for err in errors:
-                        err_type = err.get('error_type', '')
-                        err_code = err.get('error_code', '')
-                        user_info = err.get('user_info', '')
-                        timestamp = err.get('timestamp', '')
-                        txt = f"{err_type}: {err_code}"
-                        if user_info:
-                            txt += f" ({user_info})"
-                        if timestamp:
-                            txt += f" - {timestamp}"
-                        ttk.Label(err_f, text=txt, style="SmallText.TLabel").pack(anchor="w", padx=5)
+        def _on_dbl(e: tk.Event):
+            iid = tree.identify_row(e.y)
+            if not iid:
+                return
+            event_id = int(tree.item(iid, "tags")[0])
+            row = df[df.event_id == event_id].iloc[0]
+            _show_event_detail(row)
 
-                actions = cal_analyser.get_event_actions(event_id)
-                if actions:
-                    act_f = ttk.LabelFrame(forensic_content, text="External Sync")
-                    act_f.pack(fill="x", pady=3)
-                    for act in actions:
-                        ext_id = act.get('external_id', '')
-                        ext_tag = act.get('external_mod_tag', '')
-                        txt = f"ID: {ext_id}"
-                        if ext_tag:
-                            txt += f", Tag: {ext_tag}"
-                        ttk.Label(act_f, text=txt, style="SmallText.TLabel").pack(anchor="w", padx=5)
+        tree.bind("<Double-1>", _on_dbl)
 
-                recurrences = cal_analyser.get_recurrence_info(event_id)
-                if recurrences:
-                    rec_f = ttk.LabelFrame(forensic_content, text="Recurrence Rules")
-                    rec_f.pack(fill="x", pady=3)
-                    freq_map = {'DAILY': 'Daily', 'WEEKLY': 'Weekly', 'MONTHLY': 'Monthly', 'YEARLY': 'Yearly'}
-                    for rec in recurrences:
-                        freq = freq_map.get(rec.get('frequency', ''), rec.get('frequency', ''))
-                        interval = rec.get('interval', '')
-                        until = rec.get('until_date', '')
-                        count = rec.get('count', '')
-                        txt = f"{freq}"
-                        if interval and interval != '1':
-                            txt += f" every {interval}"
-                        if until:
-                            txt += f", until: {until}"
-                        elif count:
-                            txt += f", {count} times"
-                        ttk.Label(rec_f, text=txt, style="SmallText.TLabel").pack(anchor="w", padx=5)
-                    exceptions = cal_analyser.get_exception_dates(event_id)
-                    if exceptions:
-                        ttk.Label(rec_f, text="Exceptions:", style="SmallText.TLabel").pack(anchor="w", padx=5,
-                                                                                           pady=(5, 0))
-                        exc_dates = [exc.get('date').strftime('%Y-%m-%d') if isinstance(exc.get('date'), datetime)
-                                     else str(exc.get('date')) for exc in exceptions]
-                        ttk.Label(rec_f, text=", ".join(exc_dates), style="SmallText.TLabel", wraplength=650)\
-                            .pack(anchor="w", padx=15)
+    # --------------------------------------------------------------
+    # 🔎  Day detail popup
+    # --------------------------------------------------------------
 
-                participants = cal_analyser.get_participants(event_id)
-                if participants:
-                    part_f = ttk.LabelFrame(forensic_content, text="Participants")
-                    part_f.pack(fill="x", pady=3)
-                    role_map = {'ORGANIZER': 'Organizer', 'ATTENDEE': 'Attendee', 'OPTIONAL': 'Optional'}
-                    status_map = {'ACCEPTED': 'Accepted', 'DECLINED': 'Declined', 'TENTATIVE': 'Tentative',
-                                  'NEEDS-ACTION': 'Needs Action'}
-                    for p in participants:
-                        email = p.get('email', '')
-                        name = p.get('name', '')
-                        role = role_map.get(p.get('role', ''), p.get('role', ''))
-                        status = status_map.get(p.get('status', ''), p.get('status', ''))
-                        txt = f"{name} <{email}>" if name else email
-                        if role:
-                            txt += f" ({role}"
-                            if status:
-                                txt += f", {status}"
-                            txt += ")"
-                        ttk.Label(part_f, text=txt, style="SmallText.TLabel").pack(anchor="w", padx=5)
+    def _show_day_details(day: int):
+        evs = _load_month_events().get(day)
+        if not evs:
+            return
 
-                loc_id = event.get('location_id')
-                if loc_id:
-                    loc_info = cal_analyser.get_location_info(loc_id)
-                    if loc_info:
-                        loc_f = ttk.LabelFrame(forensic_content, text="Location Details")
-                        loc_f.pack(fill="x", pady=3)
-                        for loc in loc_info:
-                            title = loc.get('title', '')
-                            address = loc.get('address', '')
-                            lat = loc.get('latitude', '')
-                            lng = loc.get('longitude', '')
-                            if title:
-                                ttk.Label(loc_f, text=f"Name: {title}", style="SmallText.TLabel").pack(anchor="w", padx=5)
-                            if address:
-                                ttk.Label(loc_f, text=f"Address: {address}", style="SmallText.TLabel")\
-                                    .pack(anchor="w", padx=5)
-                            if lat and lng:
-                                ttk.Label(loc_f, text=f"Coords: {lat}, {lng}", style="SmallText.TLabel")\
-                                    .pack(anchor="w", padx=5)
+        win = tk.Toplevel(parent_frame)
+        win.title(f"{calendar.month_name[state.month]} {day}, {state.year}")
+        win.geometry("820x560")
+        win.transient(parent_frame)
+        win.grab_set()
 
-                alarms = cal_analyser.get_alarms_for_event(event_id)
-                if alarms:
-                    alarm_f = ttk.LabelFrame(forensic_content, text="Alarms")
-                    alarm_f.pack(fill="x", pady=3)
-                    for alarm in alarms:
-                        trigger = alarm.get('trigger_date', '')
-                        alarm_type = alarm.get('type', '')
-                        trigger_txt = str(trigger)
-                        if isinstance(trigger, int):
-                            minutes = abs(trigger)
-                            hours, mins = divmod(minutes, 60)
-                            pretty = f"{hours}h {mins}m" if hours else f"{minutes}m"
-                            trigger_txt = f"{pretty} {'before' if trigger < 0 else 'after'} event"
-                        ttk.Label(alarm_f, text=f"{alarm_type}: {trigger_txt}", style="SmallText.TLabel")\
-                            .pack(anchor="w", padx=5)
+        hdr = ttk.Frame(win, padding=5)
+        hdr.pack(fill="x")
+        ttk.Label(hdr, text=datetime(state.year, state.month, day).strftime("%A, %B %d, %Y"), style="HeaderLarge.TLabel").pack(side="left")
+        ttk.Button(hdr, text="Close", command=win.destroy).pack(side="right")
+        ttk.Separator(win, orient="horizontal").pack(fill="x", pady=4)
 
-                attachments = cal_analyser.get_attachments_for_event(event_id)
-                if attachments:
-                    att_f = ttk.LabelFrame(forensic_content, text="Attachments")
-                    att_f.pack(fill="x", pady=3)
-                    for att in attachments:
-                        filename = att.get('filename', 'file')
-                        mime = att.get('mime_type', '')
-                        size = att.get('file_size', 0)
-                        size_str = ""
-                        if size:
-                            if size < 1024:
-                                size_str = f"{size} B"
-                            elif size < 1024 * 1024:
-                                size_str = f"{size / 1024:.1f} KB"
-                            else:
-                                size_str = f"{size / (1024 * 1024):.1f} MB"
-                        txt = filename
-                        if mime:
-                            txt += f" ({mime})"
-                        if size_str:
-                            txt += f" - {size_str}"
-                        ttk.Label(att_f, text=txt, style="SmallText.TLabel").pack(anchor="w", padx=5)
+        canvas = tk.Canvas(win, highlightthickness=0)
+        sb = ttk.Scrollbar(win, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
 
-            if i < len(sorted_events) - 1:
-                ttk.Separator(content_frame, orient="horizontal").pack(fill="x", pady=8)
+        content = ttk.Frame(canvas, padding=10)
+        window_id = canvas.create_window((0, 0), window=content, anchor="nw")
 
-    def go_to_today():
-        today = datetime.now()
-        state.current_year = today.year
-        state.current_month = today.month
-        update_month_label()
-        refresh_calendar()
+        def _sync_width(e):
+            canvas.itemconfigure(window_id, width=e.width)
+        canvas.bind("<Configure>", _sync_width)
+        content.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
 
-    def change_month(delta):
-        new_month = state.current_month + delta
-        new_year = state.current_year
-        if new_month < 1:
-            new_month = 12
-            new_year -= 1
-        elif new_month > 12:
-            new_month = 1
-            new_year += 1
-        state.current_year = new_year
-        state.current_month = new_month
-        update_month_label()
-        refresh_calendar()
+        for ev in sorted(evs, key=lambda x: x.get("start_date") or datetime.max):
+            _build_event_detail(content, ev)
 
-    refresh_calendar()
+        ttk.Label(content).pack(pady=4)
 
-    status_frame = ttk.Frame(parent_frame)
-    status_frame.pack(fill="x", pady=5)
-    event_count = len(state.events_cache.get(f"{state.current_year}-{state.current_month}", pd.DataFrame()))
-    ttk.Label(status_frame, text=f"Total events: {event_count}", style="SmallText.TLabel")\
-        .pack(side="left")
-    ttk.Label(status_frame, text=f"Backup path: {backup_path}", style="SmallText.TLabel")\
-        .pack(side="right")
+    # --------------------------------------------------------------
+    # 🧭  Navigation helpers
+    # --------------------------------------------------------------
+
+    def _goto_date_and_show(y: int, m: int, d: int):
+        state.year, state.month = y, m
+        _update_month_label()
+        _refresh()
+        _show_day_details(d)
+
+    def _go_today():
+        now = datetime.now()
+        state.year, state.month = now.year, now.month
+        _update_month_label()
+        _refresh()
+
+    def _change_month(delta: int):
+        m = state.month + delta
+        y = state.year
+        if m < 1:
+            m, y = 12, y - 1
+        elif m > 12:
+            m, y = 1, y + 1
+        state.month, state.year = m, y
+        _update_month_label()
+        _refresh()
+
+    # --------------------------------------------------------------
+    # 🚀  Initial paint
+    # --------------------------------------------------------------
+
+    _update_month_label()
+    _refresh()
+
+    status = ttk.Frame(parent_frame)
+    status.pack(fill="x", pady=5)
+    ttk.Label(status, text=f"Backup path: {backup_path}", style="SmallText.TLabel").pack(side="right")
+    

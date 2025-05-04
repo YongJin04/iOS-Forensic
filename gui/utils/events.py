@@ -1,5 +1,6 @@
 from tkinter import filedialog
 
+from backup_analyzer.backup_decrypt_utils import is_backup_encrypted
 from backup_analyzer.manifest_utils import load_manifest_plist, load_manifest_db
 from backup_analyzer.build_file_list_utils import build_file_list_tree
 
@@ -7,21 +8,42 @@ from backup_analyzer.build_file_list_utils import build_file_list_tree
 # ─────────────────────────────────────────────────────────────────────────────
 # 기본 기능 (Browse, Toggle, 리스트/트리 동기화) ─ 기존과 동일
 # ─────────────────────────────────────────────────────────────────────────────
-def browse_backup_path(path_var, password_entry, password_var, enable_pw_var):
-    """Opens a file dialog to select a backup folder and checks encryption."""
-    folder_selected = filedialog.askdirectory()
-    if folder_selected:
-        path_var.set(folder_selected)
-        manifest_data = load_manifest_plist(folder_selected)
-        is_encrypted = manifest_data.get("IsEncrypted", False)
+def browse_backup_path(
+        path_var,
+        password_entry,
+        password_var,
+        enable_pw_var,
+        enable_pw_check=None,   # ← 선택: “Encrypted” 체크박스 위젯
+        pw_toggle_btn=None):    # ← 선택: 👁 비밀번호 토글 버튼
+    """
+    • 사용자가 백업 폴더를 고르면 즉시 Manifest.db 첫 16 byte를 읽어
+      SQLite 매직과 비교해 암호화 여부를 판단한다.
+    • 암호화되지 않은 백업이면 비밀번호 입력·토글·체크박스
+      **모두 비활성화**.
+    """
+    folder_selected = filedialog.askdirectory(title="Select iOS backup folder")
+    if not folder_selected:
+        return          # 사용자가 취소
 
-        if is_encrypted:
-            enable_pw_var.set(1)
-            password_entry.config(state="normal")
-        else:
-            enable_pw_var.set(0)
-            password_entry.config(state="disabled")
-            password_var.set("")
+    path_var.set(folder_selected)
+    password_var.set("")          # 이전 입력 초기화
+
+    # ← 헤더 비교(53514c69… SQLite magic) 로 암/복호 여부 판정
+    encrypted = is_backup_encrypted(folder_selected)
+
+    if encrypted:
+        enable_pw_var.set(1)
+        password_entry.config(state="normal")
+        if enable_pw_check: enable_pw_check.state(["selected"])
+        if pw_toggle_btn:   pw_toggle_btn.config(state="normal")
+    else:
+        enable_pw_var.set(0)
+        password_entry.config(state="disabled")
+        if enable_pw_check: enable_pw_check.state(["!selected"])
+        if pw_toggle_btn:   pw_toggle_btn.config(state="disabled")
+
+        # 체크가 비활성화되면 토글 버튼도 눌러볼 수 없으므로 표시를 초기화
+        pw_toggle_btn and pw_toggle_btn.config(text="👁")
 
 
 def toggle_password_entry(enable_pw_var, password_entry, password_var):

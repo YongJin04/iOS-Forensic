@@ -14,6 +14,7 @@ from gui.components.toggle import *
 from gui.utils.load_backup import load_backup
 from gui.components.display_preview import PreviewManager
 from gui.utils.events import *
+from backup_analyzer.backup_decrypt_utils import decrypt_iphone_backup
 
 def start_gui() -> None:
     """GUI 애플리케이션을 초기화하고 시작합니다."""
@@ -158,21 +159,41 @@ def setup_gui(rootWindow: tk.Tk, colors: dict[str, str]) -> dict:
     # ─── 이벤트 바인딩 ─────────────────────────────────────────
     browse_button.configure(
         command=lambda: browse_backup_path(
-            backup_path_var, password_entry, password_var, enable_pw_var
+            backup_path_var,
+            password_entry,
+            password_var,
+            enable_pw_var,
+            enable_pw_check,   # ← 추가
+            pw_toggle_btn      # ← 추가
         )
     )
 
     def on_load_backup():
+        backup_path = backup_path_var.get()
+        password = password_var.get()
+        is_encrypted = enable_pw_var.get() == 1
+
+        if is_encrypted:
+            try:
+                # print("🔐 암호화된 백업이 감지되었습니다. 복호화를 시도합니다...")
+                decrypt_iphone_backup(password, backup_path)
+            except Exception as e:
+                # print(f"❌ 복호화 중 오류 발생: {e}")
+                return  # 복호화 실패 시 더 이상 진행하지 않음
+
+        # 기존 load_backup 로직
         load_backup(
-            backup_path_var.get(),
-            password_var.get(),
+            backup_path,
+            password,
             backup_tree,
             enable_pw_var,
+            enable_pw_check,
+            password_entry,
             file_list_widgets["file_list_tree"],
             icon_dict=icon_dict,
             flag_container=backup_loaded_flag,
         )
-        # 백업이 성공적으로 로드되면 Artifact 탭 활성화
+
         if backup_loaded_flag.get("loaded"):
             notebook.tab(artifact_tab, state="normal")
 

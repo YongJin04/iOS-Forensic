@@ -7,5 +7,7 @@ opencv-python==4.11.0.86
 imageio-ffmpeg==0.6.0
 matplotlib==3.10.1
 biplist==1.0.3
-tk
 pycryptodome==3.22.0
+iphone_backup_decrypt==0.9.0
+fastpbkdf2==0.2
+pandas==2.2.3
