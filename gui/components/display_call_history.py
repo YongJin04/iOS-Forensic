@@ -1,325 +1,469 @@
-from tkinter import ttk, messagebox
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+CallHistoryDB 분석 GUI 프론트엔드 모듈
+ - CallHistory.storedata 파일을 로드하고 분석 결과를 표시하는 사용자 인터페이스
+ - 백엔드 모델(callhistory_analyzer.py)과 연계하여 동작
+"""
+
 import tkinter as tk
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from artifact_analyzer.call.call_history import CallHistoryAnalyzer
+from tkinter import ttk, filedialog, messagebox
+import calendar
+from datetime import datetime
+import pandas as pd
+from functools import partial
+
+# 백엔드 모델 모듈 임포트
+from callhistory_analyzer import CallHistoryModel
 
 
-def display_call_history(parent_frame, backup_path):
-    """통화 기록을 표시하는 함수입니다."""
-    # 기존 위젯 삭제
+def display_call_history(parent_frame, database_path=None):
+    """
+    iOS CallHistory.storedata 분석을 위한 responsive UI
+    
+    기능
+    ----
+    * 통화 기록 탭: ZCALLRECORD 테이블 데이터 표시 및 누락 레코드 분석
+    * 메타 데이터 탭: Z_PRIMARYKEY 테이블 정보 표시
+    * 편리한 파일 로드 및 데이터 탐색 기능
+    """
+    
+    # 기존 위젯 클리어 (메모리 효율성)
     for widget in parent_frame.winfo_children():
         widget.destroy()
     
-    # CallHistoryAnalyzer 인스턴스 생성
-    analyzer = CallHistoryAnalyzer(backup_path)
-    success, message = analyzer.load_call_records()
+    # ---------------- 상태 관리 클래스 ----------------
     
-    # 메인 프레임 생성
-    main_frame = ttk.Frame(parent_frame)
-    main_frame.pack(fill="both", expand=True)
+    class CallHistoryState:
+        def __init__(self):
+            self.model = CallHistoryModel()
+            self.database_path = None
+            self.is_connected = False
+            
+    state = CallHistoryState()
     
-    # 상단 검색 및 필터 영역
-    search_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=10)
-    search_frame.pack(fill="x", padx=5, pady=5)
+    # ---------------- 유틸리티 함수 ----------------
     
-    # 검색창
-    ttk.Label(search_frame, text="검색:").pack(side="left", padx=(0, 5))
-    search_var = tk.StringVar()
-    search_entry = ttk.Entry(search_frame, textvariable=search_var, width=30)
-    search_entry.pack(side="left", padx=5)
+    def create_tooltip(widget, text):
+        """위젯에 툴팁 추가"""
+        tooltip = None
+        
+        def enter(event):
+            nonlocal tooltip
+            x, y, _, _ = widget.bbox("insert")
+            x += widget.winfo_rootx() + 25
+            y += widget.winfo_rooty() + 25
+            tooltip = tk.Toplevel(widget)
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            label = ttk.Label(tooltip, text=text, background="lightyellow",
+                             relief="solid", borderwidth=1, padding=(5, 3))
+            label.pack()
+            
+        def leave(event):
+            nonlocal tooltip
+            if tooltip:
+                tooltip.destroy()
+                tooltip = None
+                
+        widget.bind("<Enter>", enter)
+        widget.bind("<Leave>", leave)
     
-    # 필터 옵션 (수신/발신/부재중)
-    filter_var = tk.StringVar(value="모든 통화")
-    filter_options = ["모든 통화", "수신 통화", "발신 통화", "부재중 통화"]
-    filter_combobox = ttk.Combobox(search_frame, textvariable=filter_var, values=filter_options, state="readonly", width=15)
-    filter_combobox.pack(side="left", padx=10)
+    # ---------------- 스타일 설정 ----------------
     
-    # 날짜 범위 선택
-    ttk.Label(search_frame, text="기간:").pack(side="left", padx=(10, 5))
-    date_range_var = tk.StringVar(value="전체")
-    date_options = ["전체", "오늘", "어제", "이번 주", "이번 달"]
-    date_combobox = ttk.Combobox(search_frame, textvariable=date_range_var, values=date_options, state="readonly", width=15)
-    date_combobox.pack(side="left", padx=5)
+    def setup_styles():
+        style = ttk.Style()
+        style.theme_use("clam")  # 기본 테마 사용
+        
+        # 헤더 및 텍스트 스타일
+        style.configure("HeaderLarge.TLabel", font=("Helvetica", 18, "bold"), foreground="#2C3E50")
+        style.configure("Header.TLabel", font=("Helvetica", 14, "bold"), foreground="#34495E")
+        style.configure("HeaderSmall.TLabel", font=("Helvetica", 10, "bold"), foreground="#2980B9")
+        style.configure("Text.TLabel", font=("Helvetica", 10), foreground="#2C3E50")
+        style.configure("SmallText.TLabel", font=("Helvetica", 8), foreground="#7F8C8D")
+        
+        # 버튼 스타일
+        style.configure("TButton", font=("Helvetica", 10), padding=5)
+        
+        # 테이블 스타일
+        style.configure("Treeview", font=("Helvetica", 10))
+        style.configure("Treeview.Heading", font=("Helvetica", 10, "bold"))
+        
+        # 탭 스타일
+        style.configure("TNotebook", background="#FDFDFD")
+        style.configure("TNotebook.Tab", font=("Helvetica", 10), padding=[10, 2])
+        
+        # 프레임 스타일
+        style.configure("TFrame", background="#FDFDFD")
+        style.configure("InfoFrame.TFrame", relief="groove", borderwidth=1, padding=8)
+        
+        # 에러 텍스트 스타일
+        style.configure("ErrorText.TLabel", font=("Helvetica", 12), foreground="red")
+        
+    setup_styles()
     
-    # 검색 버튼
-    search_button = ttk.Button(search_frame, text="검색", style="Accent.TButton")
-    search_button.pack(side="left", padx=10)
+    # ---------------- 헤더 / 타이틀 ----------------
     
-    # 좌우 패널을 위한 PanedWindow
-    paned_window = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
-    paned_window.pack(fill="both", expand=True, padx=5, pady=5)
+    header_frame = ttk.Frame(parent_frame)
+    header_frame.pack(fill="x", pady=(0, 5))
     
-    # 왼쪽 패널 - 통화 목록
-    left_frame = ttk.Frame(paned_window, style="Card.TFrame", padding=10)
-    paned_window.add(left_frame, weight=1)
+    header_label = ttk.Label(header_frame, text="iOS 통화 기록 분석 도구", style="HeaderLarge.TLabel")
+    header_label.pack(side="left", pady=(0, 5))
     
-    # 통화 목록 헤더
-    ttk.Label(left_frame, text="통화 기록", style="CardHeader.TLabel").pack(anchor="w", pady=(0, 10))
+    # ---------------- 데이터베이스 로드 섹션 ----------------
     
-    # 통화 목록 트리뷰
-    columns = ("id", "number", "date", "duration", "direction", "answered")
-    call_treeview = ttk.Treeview(left_frame, columns=columns, show="headings", height=20)
+    load_frame = ttk.Frame(parent_frame)
+    load_frame.pack(fill="x", pady=5)
+    
+    load_button = ttk.Button(
+        load_frame, 
+        text="CallHistory.storedata 파일 로드", 
+        command=lambda: load_database()
+    )
+    load_button.pack(side="left")
+    create_tooltip(load_button, "iOS 백업에서 추출한 CallHistory.storedata 파일 선택")
+    
+    path_var = tk.StringVar()
+    path_var.set("파일을 로드하세요.")
+    path_label = ttk.Label(load_frame, textvariable=path_var, style="SmallText.TLabel")
+    path_label.pack(side="left", padx=10)
+    
+    # ---------------- 탭 컨테이너 ----------------
+    
+    tabs = ttk.Notebook(parent_frame)
+    tabs.pack(fill="both", expand=True, pady=10)
+    
+    # 첫 번째 탭: 통화 기록 데이터
+    main_tab = ttk.Frame(tabs)
+    tabs.add(main_tab, text="통화 기록 분석")
+    
+    # 두 번째 탭: 메타 데이터
+    meta_tab = ttk.Frame(tabs)
+    tabs.add(meta_tab, text="메타 데이터 분석")
+    
+    # ---------------- 통화 기록 탭 내용 ----------------
+    
+    main_control_frame = ttk.Frame(main_tab)
+    main_control_frame.pack(fill="x", pady=5)
+    
+    analyze_missing_button = ttk.Button(
+        main_control_frame, 
+        text="누락된 레코드 분석", 
+        command=lambda: analyze_missing_records(),
+        state="disabled"
+    )
+    analyze_missing_button.pack(side="left")
+    create_tooltip(analyze_missing_button, "ZCALLRECORD 테이블의 누락 여부 분석")
+    
+    # 상태 메시지
+    main_status_var = tk.StringVar()
+    main_status_var.set("파일을 로드하세요.")
+    main_status = ttk.Label(main_control_frame, textvariable=main_status_var, style="SmallText.TLabel")
+    main_status.pack(side="right")
+    
+    # 통화 기록 테이블 (Treeview 사용)
+    main_tree_frame = ttk.Frame(main_tab)
+    main_tree_frame.pack(fill="both", expand=True, pady=5)
+    
+    # 스크롤바
+    main_y_scroll = ttk.Scrollbar(main_tree_frame, orient="vertical")
+    main_x_scroll = ttk.Scrollbar(main_tree_frame, orient="horizontal")
+    
+    # 트리뷰 테이블
+    main_tree = ttk.Treeview(
+        main_tree_frame,
+        columns=("pk", "raw_zdate", "call_date", "duration", "address", "direction", "answered"),
+        show="headings",
+        yscrollcommand=main_y_scroll.set,
+        xscrollcommand=main_x_scroll.set
+    )
     
     # 컬럼 설정
-    call_treeview.heading("id", text="ID")
-    call_treeview.heading("number", text="전화번호")
-    call_treeview.heading("date", text="날짜/시간")
-    call_treeview.heading("duration", text="통화시간(초)")
-    call_treeview.heading("direction", text="방향")
-    call_treeview.heading("answered", text="응답여부")
+    main_tree.heading("pk", text="PK")
+    main_tree.heading("raw_zdate", text="Raw ZDATE")
+    main_tree.heading("call_date", text="Call Date (kr)")
+    main_tree.heading("duration", text="통화 시간(초)")
+    main_tree.heading("address", text="전화번호")
+    main_tree.heading("direction", text="방향")
+    main_tree.heading("answered", text="Answered")
     
     # 컬럼 너비 설정
-    call_treeview.column("id", width=50)
-    call_treeview.column("number", width=130)
-    call_treeview.column("date", width=200)
-    call_treeview.column("duration", width=80)
-    call_treeview.column("direction", width=60)
-    call_treeview.column("answered", width=70)
+    main_tree.column("pk", width=50, anchor="center")
+    main_tree.column("raw_zdate", width=120, anchor="center")
+    main_tree.column("call_date", width=150, anchor="center")
+    main_tree.column("duration", width=80, anchor="center")
+    main_tree.column("address", width=120, anchor="center")
+    main_tree.column("direction", width=70, anchor="center")
+    main_tree.column("answered", width=70, anchor="center")
     
-    # 스크롤바 추가
-    scrollbar = ttk.Scrollbar(left_frame, orient="vertical", command=call_treeview.yview)
-    call_treeview.configure(yscrollcommand=scrollbar.set)
+    # 스크롤바 설정
+    main_y_scroll.config(command=main_tree.yview)
+    main_x_scroll.config(command=main_tree.xview)
     
-    # 트리뷰와 스크롤바 배치
-    call_treeview.pack(side="left", fill="both", expand=True)
-    scrollbar.pack(side="right", fill="y")
+    # 배치
+    main_y_scroll.pack(side="right", fill="y")
+    main_x_scroll.pack(side="bottom", fill="x")
+    main_tree.pack(side="left", fill="both", expand=True)
     
-    # 오른쪽 패널 - 상세 정보 및 통계
-    right_frame = ttk.Frame(paned_window, style="Card.TFrame", padding=10)
-    paned_window.add(right_frame, weight=1)
-    
-    # 탭 컨트롤 생성
-    tab_control = ttk.Notebook(right_frame)
-    tab_control.pack(fill="both", expand=True)
-    
-    # 상세 정보 탭
-    details_tab = ttk.Frame(tab_control)
-    tab_control.add(details_tab, text="상세 정보")
+    # 항목 선택 시 상세 정보 표시 바인딩
+    main_tree.bind("<<TreeviewSelect>>", lambda e: show_call_details())
     
     # 상세 정보 프레임
-    details_frame = ttk.Frame(details_tab, style="SubCard.TFrame", padding=10)
-    details_frame.pack(fill="both", expand=True, padx=5, pady=5)
+    detail_frame = ttk.LabelFrame(main_tab, text="통화 상세 정보")
+    detail_frame.pack(fill="x", expand=False, pady=5, padx=5)
     
-    # 상세 정보 레이블 (백엔드의 CallRecord 속성에 맞게 수정)
-    detail_labels = {
-        "number_label": ttk.Label(details_frame, text="전화번호:"),
-        "date_label": ttk.Label(details_frame, text="날짜/시간:"),
-        "duration_label": ttk.Label(details_frame, text="통화시간(초):"),
-        "direction_label": ttk.Label(details_frame, text="통화방향:"),
-        "answered_label": ttk.Label(details_frame, text="응답여부:"),
-        "id_label": ttk.Label(details_frame, text="레코드 ID:")
-    }
+    detail_content = ttk.Frame(detail_frame, padding=5)
+    detail_content.pack(fill="x", expand=True)
     
-    detail_values = {
-        "number_value": ttk.Label(details_frame, text="", style="DetailValue.TLabel"),
-        "date_value": ttk.Label(details_frame, text="", style="DetailValue.TLabel"),
-        "duration_value": ttk.Label(details_frame, text="", style="DetailValue.TLabel"),
-        "direction_value": ttk.Label(details_frame, text="", style="DetailValue.TLabel"),
-        "answered_value": ttk.Label(details_frame, text="", style="DetailValue.TLabel"),
-        "id_value": ttk.Label(details_frame, text="", style="DetailValue.TLabel")
-    }
+    # 상세 정보 필드 초기화
+    detail_labels = {}
+    detail_fields = ["전화번호", "통화일시", "통화시간", "통화유형", "착신/발신", "비고"]
     
-    # 그리드 배치
-    row = 0
-    for key, label in detail_labels.items():
-        label.grid(row=row, column=0, sticky="w", padx=5, pady=5)
-        value_key = key.replace("label", "value")
-        detail_values[value_key].grid(row=row, column=1, sticky="w", padx=5, pady=5)
-        row += 1
-    
-    # 통계 탭
-    stats_tab = ttk.Frame(tab_control)
-    tab_control.add(stats_tab, text="통계")
-    
-    # 통계 프레임
-    stats_frame = ttk.Frame(stats_tab, style="SubCard.TFrame", padding=10)
-    stats_frame.pack(fill="both", expand=True, padx=5, pady=5)
-    
-    # 통계 정보 레이블
-    ttk.Label(stats_frame, text="통화 통계", style="SubCardHeader.TLabel").pack(anchor="w", pady=(0, 10))
-    
-    # 통계 데이터 프레임
-    stats_data_frame = ttk.Frame(stats_frame)
-    stats_data_frame.pack(fill="x", expand=False, pady=5)
-    
-    # 통계 정보 그리드 (백엔드의 get_call_statistics() 결과에 맞게 수정)
-    stats_labels = [
-        ("총 통화수:", "0"),
-        ("수신 통화:", "0"),
-        ("발신 통화:", "0"),
-        ("부재중 통화:", "0"),
-        ("총 통화시간:", "0초"),
-        ("평균 통화시간:", "0초"),
-        ("가장 긴 통화:", "0초"),
-        ("가장 많이 통화한 번호:", "없음")
-    ]
-    
-    stats_values = {}
-    for i, (label_text, value_text) in enumerate(stats_labels):
-        ttk.Label(stats_data_frame, text=label_text).grid(row=i, column=0, sticky="w", padx=5, pady=2)
-        stats_values[label_text] = ttk.Label(stats_data_frame, text=value_text, style="DetailValue.TLabel")
-        stats_values[label_text].grid(row=i, column=1, sticky="w", padx=5, pady=2)
-    
-    # 그래프를 위한 프레임
-    graph_frame = ttk.Frame(stats_frame)
-    graph_frame.pack(fill="both", expand=True, pady=10)
-    
-    # 삭제된 기록 탭
-    deleted_tab = ttk.Frame(tab_control)
-    tab_control.add(deleted_tab, text="삭제된 기록")
-    
-    # 삭제된 기록 프레임
-    deleted_frame = ttk.Frame(deleted_tab, style="SubCard.TFrame", padding=10)
-    deleted_frame.pack(fill="both", expand=True, padx=5, pady=5)
-    
-    ttk.Label(deleted_frame, text="삭제된 통화 기록 정보", style="SubCardHeader.TLabel").pack(anchor="w", pady=(0, 10))
-    
-    # 삭제된 기록 정보 프레임 (백엔드의 get_deleted_record_info() 결과에 맞게 수정)
-    deleted_info_frame = ttk.Frame(deleted_frame)
-    deleted_info_frame.pack(fill="x", expand=False, pady=5)
-    
-    deleted_info_labels = [
-        ("최대 레코드 ID:", "0"),
-        ("현재 레코드 수:", "0"),
-        ("삭제된 레코드 수 (추정):", "0")
-    ]
-    
-    deleted_info_values = {}
-    for i, (label_text, value_text) in enumerate(deleted_info_labels):
-        ttk.Label(deleted_info_frame, text=label_text).grid(row=i, column=0, sticky="w", padx=5, pady=2)
-        deleted_info_values[label_text] = ttk.Label(deleted_info_frame, text=value_text, style="DetailValue.TLabel")
-        deleted_info_values[label_text].grid(row=i, column=1, sticky="w", padx=5, pady=2)
-    
-    # 데이터베이스에서 통화 기록 로드 및 표시
-    def load_call_history():
-        """백업에서 통화 기록을 로드하고 표시합니다."""
-        # 트리뷰 비우기
-        for item in call_treeview.get_children():
-            call_treeview.delete(item)
+    for i, field in enumerate(detail_fields):
+        row = i // 3
+        col = i % 3
         
-        if not success:
-            messagebox.showerror("오류", message)
+        field_frame = ttk.Frame(detail_content)
+        field_frame.grid(row=row, column=col, sticky="w", padx=10, pady=3)
+        
+        ttk.Label(field_frame, text=f"{field}:", style="HeaderSmall.TLabel").pack(side="left")
+        detail_labels[field] = ttk.Label(field_frame, text="", style="Text.TLabel")
+        detail_labels[field].pack(side="left", padx=5)
+    
+    # ---------------- 메타 데이터 탭 내용 ----------------
+    
+    meta_control_frame = ttk.Frame(meta_tab)
+    meta_control_frame.pack(fill="x", pady=5)
+    
+    load_meta_button = ttk.Button(
+        meta_control_frame, 
+        text="Z_PRIMARYKEY 테이블 로드", 
+        command=lambda: load_primarykey_info(),
+        state="disabled"
+    )
+    load_meta_button.pack(side="left")
+    create_tooltip(load_meta_button, "Z_PRIMARYKEY 테이블 메타데이터 로드")
+    
+    # 상태 메시지
+    meta_status_var = tk.StringVar()
+    meta_status_var.set("메타 데이터를 보려면 먼저 파일을 로드하세요.")
+    meta_status = ttk.Label(meta_control_frame, textvariable=meta_status_var, style="SmallText.TLabel")
+    meta_status.pack(side="right")
+    
+    # 메타 데이터 테이블 (Treeview 사용)
+    meta_tree_frame = ttk.Frame(meta_tab)
+    meta_tree_frame.pack(fill="both", expand=True, pady=5)
+    
+    # 스크롤바
+    meta_y_scroll = ttk.Scrollbar(meta_tree_frame, orient="vertical")
+    
+    # 트리뷰 테이블
+    meta_tree = ttk.Treeview(
+        meta_tree_frame,
+        columns=("entity", "max_pk"),
+        show="headings",
+        yscrollcommand=meta_y_scroll.set
+    )
+    
+    # 컬럼 설정
+    meta_tree.heading("entity", text="엔티티 이름")
+    meta_tree.heading("max_pk", text="최대 PK (Z_MAX)")
+    
+    # 컬럼 너비 설정
+    meta_tree.column("entity", width=250)
+    meta_tree.column("max_pk", width=100, anchor="center")
+    
+    # 스크롤바 설정
+    meta_y_scroll.config(command=meta_tree.yview)
+    
+    # 배치
+    meta_y_scroll.pack(side="right", fill="y")
+    meta_tree.pack(side="left", fill="both", expand=True)
+    
+    # ---------------- 데이터 조작 함수 ----------------
+    
+    def load_database(file_path=None):
+        """
+        파일 다이얼로그를 통해 CallHistory.storedata 파일을 선택하고,
+        백엔드 모델을 통해 데이터베이스에 연결합니다.
+        """
+        if not file_path:
+            file_path = filedialog.askopenfilename(
+                title="CallHistory.storedata 파일 선택",
+                filetypes=[("SQLite Files", "*.storedata *.db"), ("All Files", "*")]
+            )
+        
+        if file_path:
+            try:
+                # 백엔드 모델을 통해 데이터베이스에 연결
+                if state.model.connect_database(file_path):
+                    state.database_path = file_path
+                    state.is_connected = True
+                    
+                    # 경로 표시 업데이트
+                    path_var.set(f"로드된 파일: {file_path}")
+                    
+                    # 버튼 활성화
+                    analyze_missing_button.config(state="normal")
+                    load_meta_button.config(state="normal")
+                    
+                    # 통화 기록 데이터 로드 및 표시
+                    load_call_records()
+                    
+                    # 메타 데이터 상태 업데이트
+                    meta_status_var.set("메타 데이터를 로드하려면 버튼을 클릭하세요.")
+                else:
+                    messagebox.showerror("오류", "데이터베이스 연결에 실패했습니다.")
+            except Exception as e:
+                messagebox.showerror("오류", f"데이터베이스 연결 중 예외 발생: {str(e)}")
+    
+    def load_call_records():
+        """
+        백엔드 모델을 통해 ZCALLRECORD 테이블의 데이터를 로드하고 표시합니다.
+        """
+        try:
+            # 테이블 초기화
+            for item in main_tree.get_children():
+                main_tree.delete(item)
+                
+            # 백엔드 모델로부터 통화 기록 데이터 가져오기
+            records = state.model.get_call_records()
+            
+            # 표시할 데이터 가공 (날짜 형식 변환 포함)
+            for record in records:
+                pk, raw_zdate, duration, address, direction, answered = record
+                
+                # 날짜 변환 (백엔드 모델 함수 사용)
+                call_date_local = state.model.format_korean_date(raw_zdate)
+                
+                # 트리뷰에 항목 추가
+                main_tree.insert(
+                    "", 
+                    "end", 
+                    values=(pk, raw_zdate, call_date_local, duration, address, direction, answered)
+                )
+                
+            main_status_var.set(f"ZCALLRECORD 레코드 {len(records)}건 로드됨.")
+        except Exception as e:
+            messagebox.showerror("오류", f"데이터 로드 중 오류 발생: {str(e)}")
+    
+    def analyze_missing_records():
+        """
+        백엔드 모델을 통해 누락된(삭제된) 레코드를 분석하고 결과를 표시합니다.
+        """
+        try:
+            # 백엔드 모델의 분석 함수 호출
+            max_pk, count_records, missing_count = state.model.analyze_missing_records()
+            
+            missing_info = (
+                f"ZCALLRECORD 테이블의 최대 PK 값: {max_pk}\n"
+                f"실제 레코드 수: {count_records}\n"
+                f"누락(삭제)된 레코드 수: {missing_count}"
+            )
+            
+            # 결과 표시
+            missing_window = tk.Toplevel(parent_frame)
+            missing_window.title("누락된 레코드 분석 결과")
+            missing_window.geometry("400x200")
+            missing_window.transient(parent_frame)
+            missing_window.grab_set()
+            
+            result_frame = ttk.Frame(missing_window, padding=20)
+            result_frame.pack(fill="both", expand=True)
+            
+            ttk.Label(
+                result_frame, 
+                text="통화 기록 누락 분석 결과", 
+                style="HeaderLarge.TLabel"
+            ).pack(pady=(0, 20))
+            
+            ttk.Label(
+                result_frame,
+                text=missing_info,
+                style="Text.TLabel"
+            ).pack(fill="x", pady=10)
+            
+            ttk.Button(
+                result_frame,
+                text="확인",
+                command=missing_window.destroy
+            ).pack(pady=20)
+            
+        except Exception as e:
+            messagebox.showerror("오류", f"누락 레코드 분석 중 오류 발생: {str(e)}")
+    
+    def load_primarykey_info():
+        """
+        백엔드 모델을 통해 Z_PRIMARYKEY 테이블의 메타데이터를 로드하고 표시합니다.
+        """
+        try:
+            # 테이블 초기화
+            for item in meta_tree.get_children():
+                meta_tree.delete(item)
+                
+            # 백엔드 모델로부터 메타데이터 가져오기
+            records = state.model.get_primarykey_info()
+            
+            # 트리뷰에 항목 추가
+            for entity_name, max_pk in records:
+                meta_tree.insert("", "end", values=(entity_name, max_pk))
+                
+            meta_status_var.set(f"Z_PRIMARYKEY 테이블의 엔티티 수: {len(records)}건 로드됨.")
+        except Exception as e:
+            messagebox.showerror("오류", f"메타 데이터 로드 중 오류 발생: {str(e)}")
+    
+    def show_call_details():
+        """
+        선택한 통화 기록의 상세 정보를 표시합니다.
+        """
+        selected = main_tree.selection()
+        if not selected:
             return
             
-        # 통화 기록 표시
-        for idx, record in enumerate(analyzer.call_records):
-            call_treeview.insert("", "end", values=(
-                record.z_pk,
-                record.address,
-                record.call_date,
-                record.duration,
-                record.direction,
-                record.is_answered
-            ))
-            
-        # 통계 업데이트
-        stats = analyzer.get_call_statistics()
-        stats_values["총 통화수:"].config(text=str(stats["total_calls"]))
-        stats_values["수신 통화:"].config(text=str(stats["incoming_calls"]))
-        stats_values["발신 통화:"].config(text=str(stats["outgoing_calls"]))
-        stats_values["부재중 통화:"].config(text=str(stats["missed_calls"]))
-        stats_values["총 통화시간:"].config(text=f"{stats['total_duration']}초")
-        stats_values["평균 통화시간:"].config(text=f"{stats['avg_duration']:.1f}초")
-        stats_values["가장 긴 통화:"].config(text=f"{stats['max_duration']}초")
-        stats_values["가장 많이 통화한 번호:"].config(text=stats["top_called_number"] or "없음")
-        
-        # 삭제된 기록 정보 업데이트
-        deleted_info = analyzer.get_deleted_record_info()
-        deleted_info_values["최대 레코드 ID:"].config(text=str(deleted_info["max_pk"]))
-        deleted_info_values["현재 레코드 수:"].config(text=str(deleted_info["record_count"]))
-        deleted_info_values["삭제된 레코드 수 (추정):"].config(text=str(deleted_info["missing_count"]))
-        
-        # 그래프 생성
-        create_graphs(analyzer)
-    
-    # 그래프 생성 함수
-    def create_graphs(analyzer):
-        """통화 통계 그래프를 생성합니다."""
-        # 기존 그래프 위젯 제거
-        for widget in graph_frame.winfo_children():
-            widget.destroy()
-            
-        # 그래프 프레임 
-        fig = plt.Figure(figsize=(6, 4), dpi=100)
-        
-        # 그래프 1: 날짜별 통화 횟수
-        date_counts = analyzer.get_calls_by_date()
-        if date_counts:
-            ax1 = fig.add_subplot(211)  # 2행 1열 중 1번째
-            dates = list(date_counts.keys())[-10:]  # 최근 10일만
-            counts = [date_counts[date] for date in dates]
-            ax1.bar(range(len(dates)), counts, color='royalblue')
-            ax1.set_xticks(range(len(dates)))
-            ax1.set_xticklabels([d.split()[0].replace('년 ', '\n').replace('월 ', '/') for d in dates], rotation=45, fontsize=8)
-            ax1.set_title('날짜별 통화 횟수')
-            
-        # 그래프 2: 통화 유형별 비율
-        type_counts = analyzer.get_calls_by_type()
-        if type_counts:
-            ax2 = fig.add_subplot(212)  # 2행 1열 중 2번째
-            labels = list(type_counts.keys())
-            sizes = list(type_counts.values())
-            colors = ['lightcoral', 'lightskyblue', 'lightgreen']
-            ax2.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
-            ax2.axis('equal')
-            ax2.set_title('통화 유형별 비율')
-            
-        # 캔버스에 그래프 추가
-        canvas = FigureCanvasTkAgg(fig, master=graph_frame)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-    
-    # 통화 선택 시 상세 정보 표시
-    def show_call_details(event):
-        """선택한 통화의 상세 정보를 표시합니다."""
-        selected_item = call_treeview.selection()
-        if not selected_item:
+        # 선택한 항목의 데이터 가져오기
+        values = main_tree.item(selected[0], "values")
+        if not values or len(values) < 7:
             return
-        
-        # 선택된 항목의 값 가져오기
-        values = call_treeview.item(selected_item, "values")
-        
-        # 상세 정보 업데이트
-        if len(values) >= 6:
-            detail_values["id_value"].config(text=values[0])
-            detail_values["number_value"].config(text=values[1])
-            detail_values["date_value"].config(text=values[2])
-            detail_values["duration_value"].config(text=values[3])
-            detail_values["direction_value"].config(text=values[4])
-            detail_values["answered_value"].config(text=values[5])
-    
-    # 검색 함수
-    def search_calls():
-        """통화 기록을 검색합니다."""
-        # 트리뷰 비우기
-        for item in call_treeview.get_children():
-            call_treeview.delete(item)
             
-        # 검색 조건 가져오기
-        search_query = search_var.get()
-        call_type = filter_var.get() if filter_var.get() != "모든 통화" else None
-        date_range = date_range_var.get() if date_range_var.get() != "전체" else None
+        pk, raw_zdate, call_date, duration, address, direction, answered = values
         
-        # 검색 수행
-        filtered_records = analyzer.search_call_records(search_query, call_type, date_range)
+        # 방향 텍스트 변환
+        direction_text = "발신" if direction == "1" else "착신"
         
-        # 결과 표시
-        for record in filtered_records:
-            call_treeview.insert("", "end", values=(
-                record.z_pk,
-                record.address,
-                record.call_date,
-                record.duration,
-                record.direction,
-                record.is_answered
-            ))
+        # 응답 여부 텍스트 변환
+        answered_text = "응답" if answered == "1" else "부재중"
+        
+        # 상세 정보 표시
+        detail_labels["전화번호"].config(text=address)
+        detail_labels["통화일시"].config(text=call_date)
+        detail_labels["통화시간"].config(text=f"{duration}초")
+        detail_labels["통화유형"].config(text=answered_text)
+        detail_labels["착신/발신"].config(text=direction_text)
+        detail_labels["비고"].config(text=f"PK: {pk}")
+        
+    # 데이터베이스 경로가 제공된 경우 자동으로 로드
+    if database_path:
+        load_database(database_path)
+        
+    # 종료 시 연결 닫기
+    parent_frame.winfo_toplevel().protocol("WM_DELETE_WINDOW", lambda: close_application())
     
-    # 이벤트 바인딩
-    call_treeview.bind("<<TreeviewSelect>>", show_call_details)
-    search_button.config(command=search_calls)
+    def close_application():
+        """애플리케이션 종료 시 데이터베이스 연결을 닫습니다."""
+        if state.is_connected:
+            state.model.close_connection()
+        parent_frame.winfo_toplevel().destroy()
+
+
+# 독립 실행을 위한 코드
+if __name__ == '__main__':
+    root = tk.Tk()
+    root.title("iOS 통화 기록 분석 도구")
+    root.geometry("900x600")
     
-    # 초기 데이터 로드
-    load_call_history()
+    main_frame = ttk.Frame(root)
+    main_frame.pack(fill="both", expand=True, padx=10, pady=10)
     
-    return main_frame
+    display_call_history(main_frame)
+    
+    root.mainloop()
