@@ -3,6 +3,7 @@ import re
 import sqlite3
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+from backup_analyzer.backuphelper import BackupPathHelper
 
 # -----------------------------------------------------------------------------
 # Utility functions
@@ -57,51 +58,6 @@ def format_phone_number(phone_str: str) -> str:
         return f"{digits[:3]}-{digits[3:7]}-{digits[7:]}"
     return s
 
-
-# -----------------------------------------------------------------------------
-# BackupPathHelper
-# -----------------------------------------------------------------------------
-
-class BackupPathHelper:
-    """
-    iOS 백업 폴더의 Manifest.db를 이용해 실제 파일 경로를 찾는 헬퍼 클래스.
-    """
-
-    def __init__(self, backup_path: str):
-        self.backup_path = backup_path
-
-    def get_file_path(self, relative_path: str) -> Optional[str]:
-        """
-        Manifest.db에서 relativePath 매핑을 조회해
-        실제 백업 해시 경로를 반환. 실패 시 None.
-        """
-        manifest = os.path.join(self.backup_path, "Manifest.db")
-        if not os.path.exists(manifest):
-            return None
-
-        try:
-            with sqlite3.connect(manifest) as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT fileID FROM Files WHERE relativePath = ?",
-                    (relative_path,)
-                )
-                row = cur.fetchone()
-            if row:
-                fid = row[0]
-                path = os.path.join(self.backup_path, fid[:2], fid)
-                if os.path.exists(path):
-                    return path
-            return None
-        except Exception:
-            return None
-
-    def find_sqlite_with_tables(self, tables: List[str]) -> Optional[str]:
-        """
-        백업 폴더를 스캔해 지정된 테이블이 존재하는 SQLite 파일 경로를 반환.
-        """
-        # TODO: 구현
-        return None
 
 
 # -----------------------------------------------------------------------------
@@ -186,12 +142,8 @@ class AddressBookEntry:
             f"<b>수정일:</b> {modified} ({self.modification_date})<br>"
             f"<b>GUID:</b> {self.guid}<br>"
         )
-
-
-# -----------------------------------------------------------------------------
-# AddressBookAnalyzer
-# -----------------------------------------------------------------------------
-
+    
+    
 class AddressBookAnalyzer:
     """
     iOS 백업에서 주소록 DB와 이미지 DB를 찾아
@@ -203,28 +155,58 @@ class AddressBookAnalyzer:
         self.helper = BackupPathHelper(backup_path)
         self.entries: List[AddressBookEntry] = []
 
-    def _find_db(self, paths: List[str], tables: List[str]) -> Optional[str]:
-        for p in paths:
-            if path := self.helper.get_file_path(p):
-                return path
-        return self.helper.find_sqlite_with_tables(tables)
-
     def find_addressbook_db(self) -> Optional[str]:
-        return self._find_db(
-            [
-                "Library/AddressBook/AddressBook.sqlitedb",
-                "private/var/mobile/Library/AddressBook/AddressBook.sqlitedb",
-            ],
-            ["ABPerson", "ABMultiValue"],
-        )
+        """주소록 DB 파일 경로를 찾습니다."""
+        # 백업헬퍼를 사용하여 AddressBook.sqlitedb 파일 검색
+        results = self.helper.find_files_by_keyword("AddressBook.sqlitedb")
+        paths = self.helper.get_full_paths(results)
+        
+        # 파일 발견 시 첫 번째 경로 반환
+        if paths:
+            return paths[0][0]  # 첫 번째 파일의 전체 경로
+        
+        # 파일을 찾지 못하면 테이블 기반 검색 시도
+        return self._find_sqlite_with_tables(["ABPerson", "ABMultiValue"])
 
     def find_addressbook_images_db(self) -> Optional[str]:
-        return self._find_db(
-            [
-                "Library/AddressBook/AddressBookImages.sqlitedb",
-            ],
-            ["ABFullSizeImage"],
-        )
+        """주소록 이미지 DB 파일 경로를 찾습니다."""
+        # 백업헬퍼를 사용하여 AddressBookImages.sqlitedb 파일 검색
+        results = self.helper.find_files_by_keyword("AddressBookImages.sqlitedb")
+        paths = self.helper.get_full_paths(results)
+        
+        # 파일 발견 시 첫 번째 경로 반환
+        if paths:
+            return paths[0][0]  # 첫 번째 파일의 전체 경로
+            
+        # 파일을 찾지 못하면 테이블 기반 검색 시도
+        return self._find_sqlite_with_tables(["ABFullSizeImage"])
+
+    def _find_sqlite_with_tables(self, tables: List[str]) -> Optional[str]:
+        """지정된 테이블을 포함하는 SQLite 파일을 찾습니다."""
+        # 먼저 백업헬퍼로 .sqlitedb 파일 검색
+        results = self.helper.find_files_by_keyword(".sqlitedb")
+        paths = self.helper.get_full_paths(results)
+        
+        for full_path, _ in paths:
+            try:
+                conn = sqlite3.connect(full_path)
+                cursor = conn.cursor()
+                
+                # 모든 필요 테이블이 존재하는지 확인
+                tables_exist = True
+                for table in tables:
+                    cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'")
+                    if not cursor.fetchone():
+                        tables_exist = False
+                        break
+                
+                conn.close()
+                if tables_exist:
+                    return full_path
+            except sqlite3.Error:
+                continue
+                
+        return None
 
     def load_entries(self) -> Tuple[bool, str]:
         """
@@ -277,6 +259,7 @@ class AddressBookAnalyzer:
         return True, f"주소록 {len(self.entries)}건 로드 완료"
 
     def _load_images(self) -> None:
+        """주소록 프로필 이미지를 로드합니다."""
         db = self.find_addressbook_images_db()
         if not db:
             return

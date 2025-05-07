@@ -8,7 +8,7 @@ CallHistoryAnalyzer 클래스
 import os
 import sqlite3
 from datetime import datetime
-from artifact_analyzer.call.backuphelper import BackupPathHelper
+from backup_analyzer.backuphelper import BackupPathHelper
 
 class CallRecord:
     """통화 기록 데이터를 저장하는 클래스"""
@@ -84,6 +84,7 @@ class CallHistoryAnalyzer:
         self.call_records = []
         self.max_pk = 0
         self.record_count = 0
+        self.backup_helper = BackupPathHelper(backup_path)
         
     def find_callhistory_database(self):
         """
@@ -95,23 +96,25 @@ class CallHistoryAnalyzer:
         if not self.backup_path:
             return False, "백업 경로가 설정되지 않았습니다."
 
-        backup_helper = BackupPathHelper(self.backup_path)
         manifest_path = os.path.join(self.backup_path, "Manifest.db")
-
         if not os.path.exists(manifest_path):
             return False, "Manifest.db 파일을 찾을 수 없습니다."
 
-        callhistory_paths = [
-            "Library/CallHistoryDB/CallHistory.storedata",
-            "private/var/mobile/Library/CallHistoryDB/CallHistory.storedata",
-            "HomeDomain/Library/CallHistoryDB/CallHistory.storedata"
-        ]
-
-        for path in callhistory_paths:
-            file_path = backup_helper.get_file_path_from_manifest(path)
-            if file_path and os.path.exists(file_path):
-                return True, "CallHistory.storedata 파일을 찾았습니다."
-
+        # 'CallHistory'와 '.storedata' 키워드로 파일 검색
+        search_results = self.backup_helper.find_files_by_keyword('CallHistory', '.storedata')
+        
+        if not search_results:
+            # 다른 키워드 조합으로 시도
+            search_results = self.backup_helper.find_files_by_keyword('CallHistoryDB')
+        
+        if search_results:
+            full_paths = self.backup_helper.get_full_paths(search_results)
+            
+            if full_paths:
+                # 첫 번째 발견된 파일을 사용
+                self.db_path, relative_path = full_paths[0]
+                return True, f"CallHistory.storedata 파일을 찾았습니다: {relative_path}"
+        
         return False, "CallHistory.storedata 파일을 찾을 수 없습니다."
 
     

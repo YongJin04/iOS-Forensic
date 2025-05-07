@@ -30,6 +30,6 @@ def check_requirements(requirements_path="requirements.txt"):
         sys.exit(1)
 
 if __name__ == "__main__":
-    check_requirements()
+    #check_requirements()
     from gui.main_window import start_gui
     start_gui()

@@ -1,27 +1,40 @@
 import os
 import sqlite3
-from artifact_analyzer.call.backuphelper import BackupPathHelper
+from backup_analyzer.backuphelper import BackupPathHelper
 
 def find_safari_bookmarks(backup_path=None):
     """
     Safari 북마크 데이터베이스 (Bookmarks.db) 파일 경로 찾기
     """
-    if backup_path:
-        backup_helper = BackupPathHelper(backup_path)
-        bookmark_paths = [
-            "Library/Safari/Bookmarks.db",
-            "private/var/mobile/Library/Safari/Bookmarks.db",
-            "HomeDomain/Library/Safari/Bookmarks.db"
-        ]
 
-        # 1. Manifest.db에서 찾기
-        for path in bookmark_paths:
-            file_path = backup_helper.get_file_path_from_manifest(path)
-            if file_path and os.path.exists(file_path):
-                return file_path
-        
+    print(f"[DEBUG] Instagram plist 파일 검색 시작, 경로: {backup_path}")
     
-    return None
+    if not backup_path or not os.path.exists(backup_path):
+        print(f"[ERROR] 유효한 백업 경로가 필요합니다: {backup_path}")
+        return None
+    
+    # BackupPathHelper 클래스 활용
+    helper = BackupPathHelper(backup_path)
+    
+    # Instagram plist 파일 검색
+    search_results = helper.find_files_by_keyword("Safari/Bookmarks.db")
+    
+    if not search_results:
+        print("[DEBUG] Instagram plist 파일을 찾을 수 없음")
+        return None
+    
+    # 전체 경로 가져오기
+    full_paths = helper.get_full_paths(search_results)
+    
+    if full_paths:
+        full_path, relative_path = full_paths[0]  # 첫 번째 결과 사용
+        print(f"[DEBUG] 발견된 Instagram plist 파일: {relative_path}")
+        return full_path
+    else:
+        print("[DEBUG] Instagram plist 파일을 찾을 수 없음")
+        return None
+
+
 
 
 def get_safari_bookmarks(backup_path=None):

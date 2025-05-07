@@ -14,6 +14,7 @@ from gui.components.display_bluetooth import *
 from gui.components.display_user_account import *
 from gui.components.display_wifi import *
 from backup_analyzer.build_tree import *
+from gui.components.display_instagram import *
 
 def create_artifact_analysis_options(parent, backup_path_var, colors):
     """Create artifact analysis options."""
@@ -39,8 +40,10 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
         {"name": "Wi-Fi", "icon": "📶", "command": lambda: display_wifi(content_frame, backup_path_var.get())},
         {"name": "Browser", "icon": "🌐", "command": lambda: display_browser(content_frame, backup_path_var.get())},
         {"name": "KakaoTalk", "icon": "💬", "command": lambda: display_kakaotalk(content_frame, backup_path_var.get())},
+        {"name": "instagram", "icon": "💬", "command": lambda: display_instagram(content_frame, backup_path_var.get())},
+
         {"name": "AdressBook", "icon": "📗", "command": lambda: display_addressbook(content_frame, backup_path_var.get())},
-        # {"name": "Call History", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},  # Added new category
+        {"name": "Call History", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},  # Added new category
         {"name": "SMS", "icon": "✉️", "command": lambda: display_sms(content_frame, backup_path_var.get())},  # Added SMS category
         {"name": "Calendar", "icon": "📅", "command": lambda: display_calendar(content_frame, backup_path_var.get())},  # Added Calrendar category
         {"name": "Gallery", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
