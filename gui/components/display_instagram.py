@@ -3,11 +3,11 @@ from tkinter import ttk, font
 from PIL import Image, ImageTk
 import io
 import requests
-import os
 from PIL import ImageDraw
-
+from tkinter import messagebox
 from artifact_analyzer.messenger.instagram.follow import get_instagram_following
 from artifact_analyzer.messenger.instagram.account import get_instagram_account_info
+from artifact_analyzer.messenger.instagram.dm import *
 
 class display_instagram:
     def __init__(self, root, backup_path):
@@ -41,9 +41,15 @@ class display_instagram:
         self.following_tab = ttk.Frame(self.tab_control)
         self.tab_control.add(self.following_tab, text=" 팔로잉 목록 ")
         
+        # DM 내역 탭 추가
+        self.dm_tab = ttk.Frame(self.tab_control)
+        self.tab_control.add(self.dm_tab, text=" DM 내역 ")
+
         # 각 탭 내용 초기화
         self.setup_account_tab()
         self.setup_following_tab()
+        self.setup_dm_tab() 
+
         
         # 상태 바
         self.status_frame = ttk.Frame(self.main_frame)
@@ -97,6 +103,9 @@ class display_instagram:
                       fieldbackground="white")
         style.map("Treeview", background=[("selected", instagram_blue)], foreground=[("selected", "white")])
         
+
+
+
     def create_header(self):
         """상단 헤더 생성"""
         header_frame = ttk.Frame(self.main_frame, style="Header.TFrame")
@@ -165,14 +174,6 @@ class display_instagram:
         # Windows/Linux에서 마우스 휠 이벤트 바인딩
         account_canvas.bind_all("<MouseWheel>", _on_mousewheel)
         account_canvas.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
-        
-        # Linux에서 사용되는 버튼 4, 5 바인딩 (업/다운 스크롤)
-        account_canvas.bind_all("<Button-4>", lambda e: account_canvas.yview_scroll(-1, "units"))
-        account_canvas.bind_all("<Button-5>", lambda e: account_canvas.yview_scroll(1, "units"))
-        
-        # Linux에서 Shift + 버튼 4, 5 바인딩 (좌/우 스크롤)
-        account_canvas.bind_all("<Shift-Button-4>", lambda e: account_canvas.xview_scroll(-1, "units"))
-        account_canvas.bind_all("<Shift-Button-5>", lambda e: account_canvas.xview_scroll(1, "units"))
         
         # 계정 정보 표시
         self.display_account_info(scroll_frame)
@@ -404,6 +405,8 @@ class display_instagram:
                 justify="center"
             ).pack(expand=True, pady=50)
     
+
+
     def create_default_profile_image(self):
         """기본 프로필 이미지 생성"""
         try:
@@ -611,3 +614,383 @@ class display_instagram:
                 style="CardBody.TLabel",
                 justify="center"
             ).pack(expand=True, pady=50)
+
+
+
+
+
+
+
+
+
+    def setup_dm_tab(self):
+        """DM 내역 탭 설정"""
+
+        # 좌측 사이드바 (채팅방 목록)
+        self.dm_sidebar_frame = tk.Frame(self.dm_tab, width=250, bg="#FAFAFA", bd=1, relief=tk.SOLID)
+        self.dm_sidebar_frame.pack(side=tk.LEFT, fill=tk.Y)
+        self.dm_sidebar_frame.pack_propagate(False)
+
+        # 사이드바 상단
+        self.dm_sidebar_header = tk.Frame(self.dm_sidebar_frame, height=40, bg="#FAFAFA")
+        self.dm_sidebar_header.pack(side=tk.TOP, fill=tk.X)
+
+        self.dm_title_label = tk.Label(self.dm_sidebar_header, text="채팅 목록", font=("Arial", 12, "bold"), bg="#FAFAFA")
+        self.dm_title_label.pack(side=tk.LEFT, padx=10, pady=10)
+
+        # 계정 선택 드롭다운 추가
+        self.dm_account_frame = tk.Frame(self.dm_sidebar_frame, height=40, bg="#FAFAFA")
+        self.dm_account_frame.pack(side=tk.TOP, fill=tk.X)
+        
+        self.dm_account_label = tk.Label(self.dm_account_frame, text="계정 선택:", bg="#FAFAFA")
+        self.dm_account_label.pack(side=tk.LEFT, padx=10, pady=5)
+        
+        # 계정 목록 (DB 파일명 기준)
+        self.account_var = tk.StringVar()
+        self.dm_account_combobox = ttk.Combobox(self.dm_account_frame, textvariable=self.account_var, state="readonly", width=20)
+        self.dm_account_combobox.pack(side=tk.LEFT, padx=5, pady=5)
+        self.dm_account_combobox.bind("<<ComboboxSelected>>", lambda e: self.display_dm_history())
+        
+        # 채팅방 목록 프레임 (스크롤 가능)
+        self.dm_chat_list_frame = tk.Frame(self.dm_sidebar_frame, bg="#FAFAFA")
+        self.dm_chat_list_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        self.dm_chat_canvas = tk.Canvas(self.dm_chat_list_frame, bg="#FAFAFA")
+        self.dm_chat_scrollbar = ttk.Scrollbar(self.dm_chat_list_frame, orient="vertical", command=self.dm_chat_canvas.yview)
+        self.dm_chat_scrollable_frame = tk.Frame(self.dm_chat_canvas, bg="#FAFAFA")
+
+        self.dm_chat_canvas.configure(yscrollcommand=self.dm_chat_scrollbar.set)
+        self.dm_chat_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.dm_chat_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        dm_chat_window = self.dm_chat_canvas.create_window((0, 0), window=self.dm_chat_scrollable_frame, anchor="nw")
+
+        self.dm_chat_scrollable_frame.bind("<Configure>",
+            lambda e: self.dm_chat_canvas.configure(scrollregion=self.dm_chat_canvas.bbox("all")))
+        self.dm_chat_canvas.bind("<Configure>",
+            lambda e: self.dm_chat_canvas.itemconfig(dm_chat_window, width=e.width))
+
+        # 오른쪽 채팅 영역
+        self.dm_chat_area_frame = tk.Frame(self.dm_tab, bg="#FFFFFF")
+        self.dm_chat_area_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        self.dm_chat_header = tk.Frame(self.dm_chat_area_frame, height=40, bg="#FAFAFA", bd=1, relief=tk.SOLID)
+        self.dm_chat_header.pack(side=tk.TOP, fill=tk.X)
+
+        self.dm_chat_partner_label = tk.Label(self.dm_chat_header, text="", font=("Arial", 12, "bold"), bg="#FAFAFA")
+        self.dm_chat_partner_label.pack(side=tk.LEFT, padx=10, pady=10)
+
+        self.dm_messages_canvas = tk.Canvas(self.dm_chat_area_frame, bg="#FFFFFF")
+        self.dm_messages_scrollbar = ttk.Scrollbar(self.dm_chat_area_frame, orient="vertical", command=self.dm_messages_canvas.yview)
+        self.dm_messages_frame = tk.Frame(self.dm_messages_canvas, bg="#FFFFFF")
+
+        self.dm_messages_canvas.configure(yscrollcommand=self.dm_messages_scrollbar.set)
+        self.dm_messages_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.dm_messages_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        dm_message_window = self.dm_messages_canvas.create_window((0, 0), window=self.dm_messages_frame, anchor="nw")
+
+        self.dm_messages_frame.bind("<Configure>",
+            lambda e: self.dm_messages_canvas.configure(scrollregion=self.dm_messages_canvas.bbox("all")))
+        self.dm_messages_canvas.bind("<Configure>",
+            lambda e: self.dm_messages_canvas.itemconfig(dm_message_window, width=e.width))
+
+        # 마우스 휠 이벤트를 각 캔버스에 개별적으로 바인딩
+        # 채팅 목록 캔버스의 마우스 휠 이벤트
+        def chat_list_mousewheel(event):
+            self.dm_chat_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        
+        # 메시지 캔버스의 마우스 휠 이벤트
+        def messages_mousewheel(event):
+            self.dm_messages_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        
+        # 기존의 전역 바인딩 제거
+        self.dm_tab.unbind_all("<MouseWheel>")
+        
+        # 각 캔버스에 마우스가 있을 때만 해당 영역 스크롤되도록 설정
+        self.dm_chat_canvas.bind("<Enter>", lambda e: self.dm_chat_canvas.bind_all("<MouseWheel>", chat_list_mousewheel))
+        self.dm_chat_canvas.bind("<Leave>", lambda e: self.dm_chat_canvas.unbind_all("<MouseWheel>"))
+        
+        self.dm_messages_canvas.bind("<Enter>", lambda e: self.dm_messages_canvas.bind_all("<MouseWheel>", messages_mousewheel))
+        self.dm_messages_canvas.bind("<Leave>", lambda e: self.dm_messages_canvas.unbind_all("<MouseWheel>"))
+
+        # 선택된 채팅방 추적 변수 초기화
+        self.selected_chat_frame = None
+        self.chat_frames = {}  # 채팅방 프레임 참조 저장용 딕셔너리
+
+        # # 인스타그램 DM 분석기 인스턴스 생성 (필요한 경우에만)
+        if not hasattr(self, 'instagram_dm_analyzer'):
+            self.instagram_dm_analyzer = InstagramDMAnalyzer(self.backup_path)
+        
+        # 계정 목록 로드 및 초기 데이터 표시
+        self.load_dm_accounts()
+
+
+    
+    def load_dm_accounts(self):
+        """백엔드에서 가져온 DM 계정 목록(DB 파일) 로드"""
+        # 모든 DB 파일 경로 가져오기
+        db_paths = self.instagram_dm_analyzer.get_db_paths()
+        
+        # DB 파일명만 추출하여 콤보박스에 설정
+        db_names = [os.path.basename(path) for path in db_paths]
+        
+        # 콤보박스 값 설정
+        self.dm_account_combobox['values'] = db_names
+        
+        # 기본값 설정 (첫 번째 계정)
+        if db_names:
+            self.account_var.set(db_names[0])
+            # 초기 계정에 대한 채팅방 목록 표시
+            self.display_dm_history()
+        else:
+            # DB가 없는 경우 안내 메시지
+            messagebox.showinfo("알림", "Instagram DM 데이터베이스를 찾을 수 없습니다.")
+
+
+    def display_dm_history(self):
+        """
+        DM 내역을 표시하는 함수 - 백엔드에서 데이터를 가져와 표시
+        계정이 선택되면 해당 계정의 채팅방 목록을 불러옴
+        """
+        # 기존 채팅방 목록 삭제
+        for widget in self.dm_chat_scrollable_frame.winfo_children():
+            widget.destroy()
+        
+        # 현재 선택된 계정 가져오기
+        selected_account = self.account_var.get()
+        
+        if not selected_account:
+            return
+        
+        # 분석기에서 채팅 데이터 가져오기
+        messages_list = self.instagram_dm_analyzer.get_chat_list()
+        
+        # 채팅방 목록이 없으면 안내 메시지 표시
+        if not messages_list:
+            no_data_label = tk.Label(self.dm_chat_scrollable_frame, 
+                                    text="채팅 데이터가 없습니다.\nDB 파일을 확인해주세요.", 
+                                    font=("Arial", 10), 
+                                    bg="#FFFFFF", 
+                                    pady=20)
+            no_data_label.pack(fill=tk.X)
+            return
+        
+        # 채팅방별로 메시지 그룹화
+        chat_rooms = {}
+        for msg in messages_list:
+            # 선택된 계정에 해당하는 메시지만 필터링
+            if msg['db_name'] != selected_account:
+                continue
+                
+            room_name = msg['채팅방']
+            # 채팅방 키를 생성
+            room_key = f"{selected_account}_{room_name}"
+            
+            if room_key not in chat_rooms:
+                chat_rooms[room_key] = []
+            chat_rooms[room_key].append(msg)
+        
+        # 채팅방별 마지막 메시지 시간으로 정렬 (최신 순)
+        sorted_rooms = sorted(
+            chat_rooms.items(),
+            key=lambda x: max([msg['시간'] for msg in x[1]]) if x[1] else "",
+            reverse=True
+        )
+        
+        # 각 채팅방 추가
+        for room_key, messages in sorted_rooms:
+            # 표시할 채팅방 이름 생성 (DB 파일명 + 채팅방 이름)
+            room_name = messages[0]['채팅방'] if messages else ""
+            display_name = f"{room_name} ({selected_account})"
+            
+            # 채팅방의 마지막 메시지 정보
+            last_message = messages[-1] if messages else {}
+            last_msg_content = last_message.get('문자내용', '')
+            last_msg_time = last_message.get('시간', '')
+            
+            # 채팅방 프레임 생성
+            chat_frame = tk.Frame(self.dm_chat_scrollable_frame, height=80, bg="#FFFFFF", bd=1, relief=tk.SOLID)
+            chat_frame.pack(side=tk.TOP, fill=tk.X, pady=2)
+            chat_frame.pack_propagate(False)
+            
+            # 채팅방 프레임 참조 저장
+            self.chat_frames[room_key] = chat_frame
+            
+            # 채팅 정보
+            info_frame = tk.Frame(chat_frame, bg="#FFFFFF")
+            info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=8)
+            
+            # 채팅방 이름
+            room_label = tk.Label(info_frame, text=display_name, font=("Arial", 10, "bold"), anchor="w", bg="#FFFFFF")
+            room_label.pack(side=tk.TOP, fill=tk.X)
+            
+            # 마지막 메시지
+            message_label = tk.Label(info_frame, text=last_msg_content, font=("Arial", 9), fg="#707070", anchor="w", bg="#FFFFFF")
+            message_label.pack(side=tk.TOP, fill=tk.X)
+            
+            # 메시지 개수 표시 추가
+            message_count = len(messages)
+            count_label = tk.Label(info_frame, text=f"총 {message_count}개의 메시지", font=("Arial", 8), fg="#A0A0A0", anchor="w", bg="#FFFFFF")
+            count_label.pack(side=tk.TOP, fill=tk.X)
+            
+            # 시간
+            time_label = tk.Label(chat_frame, text=last_msg_time, font=("Arial", 8), fg="#A0A0A0", bg="#FFFFFF")
+            time_label.pack(side=tk.RIGHT, padx=10, pady=5)
+            
+            # 클릭 이벤트 바인딩 - 채팅방 선택시 해당 대화내용 표시
+            chat_frame.bind("<Button-1>", lambda e, r=display_name, m=messages, f=chat_frame: self._select_chat_room(r, m, f))
+            room_label.bind("<Button-1>", lambda e, r=display_name, m=messages, f=chat_frame: self._select_chat_room(r, m, f))
+            message_label.bind("<Button-1>", lambda e, r=display_name, m=messages, f=chat_frame: self._select_chat_room(r, m, f))
+            count_label.bind("<Button-1>", lambda e, r=display_name, m=messages, f=chat_frame: self._select_chat_room(r, m, f))
+        
+        # 스크롤을 맨 위로 이동
+        self.dm_chat_canvas.yview_moveto(0.0)
+
+            
+        
+    def _select_chat_room(self, room_name, messages, chat_frame):
+        """채팅방 선택 시 대화 내용을 표시하는 함수 (디자인 개선 및 날짜 구분 포함)"""
+        # 이전에 선택된 채팅방의 선택 표시 제거
+        if self.selected_chat_frame and self.selected_chat_frame.winfo_exists():
+            try:
+                self.selected_chat_frame.configure(bg="#FFFFFF")
+                for widget in self.selected_chat_frame.winfo_children():
+                    if isinstance(widget, tk.Frame) and widget.winfo_exists():
+                        widget.configure(bg="#FFFFFF")
+                        for child in widget.winfo_children():
+                            if isinstance(child, tk.Label) and child.winfo_exists():
+                                child.configure(bg="#FFFFFF")
+                    elif isinstance(widget, tk.Label) and widget.winfo_exists():
+                        widget.configure(bg="#FFFFFF")
+            except tk.TclError:
+                pass
+
+        # 새로 선택된 채팅방 강조
+        try:
+            chat_frame.configure(bg="#F0F9FF")
+            for widget in chat_frame.winfo_children():
+                if isinstance(widget, tk.Frame) and widget.winfo_exists():
+                    widget.configure(bg="#F0F9FF")
+                    for child in widget.winfo_children():
+                        if isinstance(child, tk.Label) and child.winfo_exists():
+                            child.configure(bg="#F0F9FF")
+                elif isinstance(widget, tk.Label) and widget.winfo_exists():
+                    widget.configure(bg="#F0F9FF")
+        except tk.TclError:
+            return
+
+        # 선택된 채팅방 저장
+        self.selected_chat_frame = chat_frame
+
+        # 채팅방 제목 업데이트
+        self.dm_chat_partner_label.configure(text=room_name)
+
+        # 기존 메시지 삭제
+        for widget in self.dm_messages_frame.winfo_children():
+            widget.destroy()
+
+        # 시간순으로 정렬
+        sorted_messages = sorted(messages, key=lambda x: x.get('시간', ''))
+        
+        # 현재 선택된 계정 가져오기 (내 계정)
+        my_account = self.account_var.get()
+        # .db 확장자 제거하고 문자열로 명시적 변환
+        if my_account and isinstance(my_account, str) and my_account.endswith('.db'):
+            my_account = my_account[:-3]
+        my_account = str(my_account)  # 명시적 문자열 변환
+        
+        # 현재 로그인한 사용자 ID 가져오기
+        my_user_id = getattr(self, 'user_id', my_account)  # user_id가 없으면 my_account를 사용
+        
+        #print(f"현재 선택된 계정: {my_account}, 사용자 ID: {my_user_id}")  # 디버깅 메시지
+
+        # 메시지 출력 (날짜 구분 포함)
+        last_date = None
+        try:
+            for msg in sorted_messages:
+                msg_time = msg.get('시간', '')
+                msg_date = msg_time.split(' ')[0] if ' ' in msg_time else ''
+
+                if msg_date and msg_date != last_date:
+                    # 날짜 구분선
+                    date_separator = tk.Frame(self.dm_messages_frame, bg="#FFFFFF", height=30)
+                    date_separator.pack(fill=tk.X, pady=10)
+                    date_label = tk.Label(date_separator, text=msg_date, font=("Arial", 9), bg="#F5F5F5", fg="#888888", padx=10, pady=2)
+                    date_label.pack()
+                    last_date = msg_date
+
+                # 발신자 정보 가져오기
+                raw_sender = msg.get('사용자', '알 수 없음')
+                sender = str(raw_sender).strip()
+                
+                # '사용자 ' 접두어 제거
+                if sender.startswith('사용자 '):
+                    sender_id = sender[4:].strip()
+                else:
+                    sender_id = sender
+                
+                # 내 메시지 여부 확인 - 사용자 ID 기반으로 비교
+                is_my_message = (sender_id == my_user_id)
+                
+                # 디버깅 메시지
+                #print(f"메시지 발신자: '{sender_id}', 내 ID: '{my_user_id}', 내 메시지?: {is_my_message}")
+                
+                # 메시지 프레임 - fill=tk.X 제거, 고정 너비 사용
+                message_frame = tk.Frame(self.dm_messages_frame, bg="#FFFFFF", pady=5, width=self.dm_messages_frame.winfo_width())
+                
+                # 내 메시지는 오른쪽, 상대방은 왼쪽
+                if is_my_message:
+                    message_frame.pack(anchor="e", padx=10)  # 오른쪽 정렬
+                else:
+                    message_frame.pack(anchor="w", padx=10)  # 왼쪽 정렬
+                
+                # 헤더 프레임 (사용자 이름 및 시간)
+                header_frame = tk.Frame(message_frame, bg="#FFFFFF")
+                if is_my_message:
+                    header_frame.pack(anchor="e")  # 오른쪽 정렬
+                else:
+                    header_frame.pack(anchor="w")  # 왼쪽 정렬
+                
+                # 사용자 이름 
+                user_label = tk.Label(header_frame, text=sender, font=("Arial", 9, "bold"), bg="#FFFFFF")
+                user_label.pack(side=tk.LEFT)
+
+                # 시간
+                time_only = msg_time.split(' ')[1] if ' ' in msg_time else msg_time
+                time_label = tk.Label(header_frame, text=time_only, font=("Arial", 8), fg="#888888", bg="#FFFFFF")
+                time_label.pack(side=tk.LEFT, padx=10)
+
+                # 메시지 내용
+                content = msg.get('문자내용', '')
+                if content:
+                    # 메시지 내용 프레임
+                    text_frame = tk.Frame(message_frame, bg="#FFFFFF")
+                    if is_my_message:
+                        text_frame.pack(anchor="e", pady=3)  # 오른쪽 정렬
+                    else:
+                        text_frame.pack(anchor="w", pady=3)  # 왼쪽 정렬
+                    
+                    # 메시지 내용 라벨
+                    if is_my_message:
+                        text_bg = "#DCF8C6"  # 내 메시지는 초록색 배경
+                    else:
+                        text_bg = "#F0FAFE"  # 상대방 메시지는 파란색 배경
+                    
+                    text_label = tk.Label(
+                        text_frame, 
+                        text=content, 
+                        font=("Arial", 10),
+                        justify=tk.LEFT, 
+                        wraplength=400, 
+                        bg=text_bg,
+                        padx=10,
+                        pady=5
+                    )
+                    text_label.pack()
+
+            # 스크롤을 맨 아래로 이동
+            self.dm_messages_canvas.update_idletasks()
+            self.dm_messages_canvas.yview_moveto(1.0)
+        except tk.TclError as e:
+            print(f"메시지 표시 중 오류 발생: {str(e)}")

@@ -21,7 +21,7 @@ def find_safari_history(backup_path=None):
     search_results = helper.find_files_by_keyword("Safari/History.db")
     
     if not search_results:
-        print("[DEBUG] Instagram plist 파일을 찾을 수 없음")
+        print("[DEBUG] safari/history.db  파일을 찾을 수 없음")
         return None
     
     # 전체 경로 가져오기
@@ -29,10 +29,9 @@ def find_safari_history(backup_path=None):
     
     if full_paths:
         full_path, relative_path = full_paths[0]  # 첫 번째 결과 사용
-        print(f"[DEBUG] 발견된 Instagram plist 파일: {relative_path}")
         return full_path
     else:
-        print("[DEBUG] Instagram plist 파일을 찾을 수 없음")
+        print("[DEBUG] safari/history.db 파일을 찾을 수 없음")
         return None
 
 def get_safari_history(backup_path=None):

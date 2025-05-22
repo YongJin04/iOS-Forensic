@@ -244,7 +244,7 @@ def find_instagram_plist(backup_path=None):
     
     if full_paths:
         full_path, relative_path = full_paths[0]  # 첫 번째 결과 사용
-        print(f"[DEBUG] 발견된 Instagram plist 파일: {relative_path}")
+        #print(f"[DEBUG] 발견된 Instagram plist 파일: {relative_path}")
         return full_path
     else:
         print("[DEBUG] Instagram plist 파일을 찾을 수 없음")
