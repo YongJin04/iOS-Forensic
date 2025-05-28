@@ -15,19 +15,20 @@ from gui.components.display_user_account import *
 from gui.components.display_wifi import *
 from backup_analyzer.build_tree import *
 from gui.components.display_instagram import *
+from gui.components.display_notes import *
 
 def create_artifact_analysis_options(parent, backup_path_var, colors):
     """Create artifact analysis options."""
     main_frame = ttk.Frame(parent)
     main_frame.pack(fill="both", expand=True)
-    
+
     # Left sidebar - artifact category
     sidebar = ttk.Frame(main_frame, style="Sidebar.TFrame", padding=10)
     sidebar.pack(side="left", fill="y", padx=(0, 10))
-    
+
     # Category title
     ttk.Label(sidebar, text="Artifact Categories", style="SidebarHeader.TLabel").pack(anchor="w", pady=(0, 10))
-    
+
     # Create right content area (pre-created here)
     content_frame = ttk.Frame(main_frame, style="Content.TFrame", padding=10)
     content_frame.pack(side="right", fill="both", expand=True)
@@ -41,27 +42,27 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
         {"name": "Browser", "icon": "🌐", "command": lambda: display_browser(content_frame, backup_path_var.get())},
         {"name": "KakaoTalk", "icon": "💬", "command": lambda: display_kakaotalk(content_frame, backup_path_var.get())},
         {"name": "instagram", "icon": "💬", "command": lambda: display_instagram(content_frame, backup_path_var.get())},
-
         {"name": "AdressBook", "icon": "📗", "command": lambda: display_addressbook(content_frame, backup_path_var.get())},
         {"name": "Call History", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},  # Added new category
         {"name": "SMS", "icon": "✉️", "command": lambda: display_sms(content_frame, backup_path_var.get())},  # Added SMS category
         {"name": "Calendar", "icon": "📅", "command": lambda: display_calendar(content_frame, backup_path_var.get())},  # Added Calrendar category
+        {"name": "Notes", "icon": "📝", "command": lambda: display_notes(content_frame, backup_path_var.get())},  # 추가됨
         {"name": "Gallery", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
         {"name": "Bluetooth", "icon": "🔵", "command": lambda: display_bluetooth(content_frame, backup_path_var.get())},
     ]
-    
+
     category_buttons = []
     selected_category = tk.StringVar()
-    
+
     # Button creation function
     def create_category_button(category, index):
         btn_frame = ttk.Frame(sidebar, style="SidebarItem.TFrame", padding=5)
         btn_frame.pack(fill="x", pady=2)
-        
+
         # Selection indicator
         indicator = ttk.Frame(btn_frame, width=3, style="Indicator.TFrame")
         indicator.pack(side="left", fill="y", padx=(0, 5))
-        
+
         # Button with icon and name
         btn = ttk.Button(
             btn_frame,
@@ -71,7 +72,7 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
         )
         btn.pack(fill="x", expand=True)
         return {"button": btn, "indicator": indicator, "frame": btn_frame}
-    
+
     # Category activation function
     def activate_category(index, category):
         selected_category.set(category["name"])
@@ -83,21 +84,21 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
             else:
                 btn_data["frame"].configure(style="SidebarItem.TFrame")
                 btn_data["indicator"].configure(style="Indicator.TFrame")
-        
+
         # Display content corresponding to category
         if category["command"]:
             category["command"]()  # Execute function for selected category
-    
+
     # Create category buttons
     for i, category in enumerate(categories):
         button_data = create_category_button(category, i)
         category_buttons.append(button_data)
-    
+
     # Show initial page
     show_artifact_welcome_page(content_frame)
-    
+
     return {
-        "sidebar": sidebar, 
+        "sidebar": sidebar,
         "content_frame": content_frame,
         "category_buttons": category_buttons,
         "selected_category": selected_category
@@ -108,26 +109,27 @@ def show_artifact_welcome_page(content_frame):
     # Clear existing widgets
     for widget in content_frame.winfo_children():
         widget.destroy()
-    
+
     # Display welcome message and guide
     welcome_frame = ttk.Frame(content_frame, style="Card.TFrame", padding=20)
     welcome_frame.pack(fill="both", expand=True, padx=10, pady=10)
-    
+
     ttk.Label(welcome_frame, text="iOS Backup Artifact Analysis", style="CardHeader.TLabel").pack(pady=(0, 20))
-    ttk.Label(welcome_frame, text="Select an artifact category on the left to begin analysis.", 
-              style="CardText.TLabel", wraplength=400).pack(pady=10)
-    
+    ttk.Label(welcome_frame, text="Select an artifact category on the left to begin analysis.",
+                style="CardText.TLabel", wraplength=400).pack(pady=10)
+
     # Icon descriptions
     icon_frame = ttk.Frame(welcome_frame)
     icon_frame.pack(pady=20)
-    
+
     icons = [
         {"icon": "📱", "text": "Device Info"},
         {"icon": "💬", "text": "KakaoTalk"},
         {"icon": "👤", "text": "Contacts"},
-        {"icon": "🖼️", "text": "Gallery"}
+        {"icon": "🖼️", "text": "Gallery"},
+        {"icon": "📝", "text": "Notes"}  # Welcome 페이지 아이콘 목록에 Notes 추가
     ]
-    
+
     for icon_data in icons:
         icon_item = ttk.Frame(icon_frame)
         icon_item.pack(side="left", padx=15)
