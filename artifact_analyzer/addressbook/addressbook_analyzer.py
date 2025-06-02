@@ -1,294 +1,150 @@
+"""
+contact_content.py
+- 31/31bb7ba8914766d4ba40d6dfb6113c8b614be442 (AddressBook.sqlitedb) 에서
+  연락처 기본 정보 + 휴대폰(010…) 한 개를 파싱
+"""
+
 import os
 import re
 import sqlite3
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional, Tuple
-from backup_analyzer.backuphelper import BackupPathHelper
+from typing import List, Optional, Tuple
 
-# -----------------------------------------------------------------------------
-# Utility functions
-# -----------------------------------------------------------------------------
 
-def format_mac_time(mac_time: float) -> str:
-    """
-    macOS 기준 시간(2001-01-01 UTC)에서부터 mac_time 초만큼 더해
-    한국 표준시(KST)로 변환한 'YYYY년 M월 D일 요일 오전/오후 H:MM:SS GMT±zzzz' 문자열을 반환.
-    실패 시 "변환 실패 (mac_time)" 반환.
-    """
+# ──────────────────────────────
+# 유틸
+# ──────────────────────────────
+MAC_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
+
+
+def mac_absolute_to_str(sec: float) -> str:
+    """Mac epoch(2001-01-01) 기준 초 → YYYY-MM-DD HH:MM:SS"""
     try:
-        mac_epoch = datetime(2001, 1, 1, tzinfo=timezone.utc)
-        dt = mac_epoch + timedelta(seconds=mac_time)
-        kst = dt.astimezone(timezone(timedelta(hours=9)))
-
-        weekdays = {
-            0: "월요일", 1: "화요일", 2: "수요일", 3: "목요일",
-            4: "금요일", 5: "토요일", 6: "일요일"
-        }
-        weekday_kor = weekdays[kst.weekday()]
-        am_pm = "오전" if kst.strftime("%p") == "AM" else "오후"
-        hour = int(kst.strftime("%I"))
-        minute = kst.strftime("%M")
-        second = kst.strftime("%S")
-
-        return (
-            f"{kst.year}년 {kst.month}월 {kst.day}일 {weekday_kor} "
-            f"{am_pm} {hour}:{minute}:{second} GMT{kst.strftime('%z')}"
-        )
+        kst = MAC_EPOCH + timedelta(seconds=sec)
+        kst = kst.astimezone(timezone(timedelta(hours=9)))
+        return kst.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
-        return f"변환 실패 ({mac_time})"
+        return ""
 
 
-def format_phone_number(phone_str: str) -> str:
-    """
-    전화번호 포맷팅:
-    - 숫자, '+', '-', 공백 외 문자가 있으면 원본 반환
-    - '+82' 국제전화 코드는 '0' 접두로 변환
-    - 11자리 '010' 시작 번호는 'xxx-xxxx-xxxx' 형식 반환
-    """
-    s = phone_str.strip()
-    if not re.fullmatch(r"[+\d\s-]+", s):
-        return phone_str
-
-    if s.startswith("+82"):
-        rest = s[3:].lstrip()
-        s = rest if rest.startswith("0") else "0" + rest
-
-    digits = re.sub(r"\D", "", s)
-    if len(digits) == 11 and digits.startswith("010"):
-        return f"{digits[:3]}-{digits[3:7]}-{digits[7:]}"
-    return s
+_PHONE_010_RE = re.compile(r"(?:\+?82)?0?1[016789]\d{7,8}")
 
 
+def pick_cell_010(phone_blob: str) -> str:
+    """c16Phone 문자열에서 010… 형태 하나만 추출"""
+    for m in _PHONE_010_RE.finditer(phone_blob):
+        digits = re.sub(r"\D", "", m.group())
+        if len(digits) == 11 and digits.startswith("010"):
+            return f"{digits[:3]}-{digits[3:7]}-{digits[7:]}"
+    return ""
 
-# -----------------------------------------------------------------------------
-# AddressBookEntry
-# -----------------------------------------------------------------------------
 
-class AddressBookEntry:
-    """
-    단일 주소록 항목(연락처) 정보를 저장하는 클래스.
-    기본 속성과 다중값(전화번호, 이메일), 이미지 데이터를 포함.
-    """
-
+# ──────────────────────────────
+# DTO
+# ──────────────────────────────
+class ContactRow:
     def __init__(
         self,
         rowid: int,
-        first_name: str = "",
-        last_name: str = "",
-        organization: str = "",
-        note: str = "",
-        **kwargs: Any,
+        first: str,
+        last: str,
+        org: str,
+        c_date: float,
+        m_date: float,
+        phone: str,
     ):
         self.rowid = rowid
-        self.first_name = first_name
-        self.last_name = last_name
-        self.organization = organization
-        self.note = note
+        self.first = first
+        self.last = last
+        self.org = org
+        self.created_raw = c_date
+        self.modified_raw = m_date
+        self.phone = phone
 
-        # 선택 속성
-        self.guid = kwargs.get("guid")
-        self.creation_date = kwargs.get("CreationDate")
-        self.modification_date = kwargs.get("ModificationDate")
+    # 편의 문자열
+    @property
+    def full_name(self) -> str:
+        return f"{self.last} {self.first}".strip()
 
-        # 라벨별 다중값 저장
-        self.values_by_label: Dict[str, List[str]] = {}
-        # 이미지 바이트
-        self.image: Optional[bytes] = None
+    @property
+    def created(self) -> str:
+        return mac_absolute_to_str(self.created_raw)
 
-    def add_value(self, label: Optional[str], value: str) -> None:
-        """
-        라벨별 다중값 속성(전화번호, 이메일 등)을 저장.
-        """
-        key = label or ""
-        self.values_by_label.setdefault(key, []).append(value)
+    @property
+    def modified(self) -> str:
+        return mac_absolute_to_str(self.modified_raw)
 
-    def get_phone_number(self) -> str:
-        """
-        포맷된 전화번호들을 ', '로 연결하여 반환.
-        """
-        phone_keys = {"_$!<Mobile>!$_", "_$!<Home>!$_", "_$!<Work>!$_", "iPhone", "mobile", ""}
-        numbers: List[str] = []
-        for lbl, vals in self.values_by_label.items():
-            if lbl in phone_keys:
-                numbers += [format_phone_number(v) for v in vals]
-        return ", ".join(numbers)
 
-    def get_emails(self) -> str:
-        """
-        저장된 이메일 주소들을 ', '로 연결하여 반환.
-        """
-        email_keys = {"Home", "Work", "email", ""}
-        emails: List[str] = []
-        for lbl, vals in self.values_by_label.items():
-            if lbl in email_keys:
-                emails += vals
-        return ", ".join(emails)
+# ──────────────────────────────
+# Analyzer
+# ──────────────────────────────
+class ContactContentAnalyzer:
+    """AddressBook.sqlitedb 파서"""
 
-    def get_formatted_details(self) -> str:
-        """
-        HTML-like 문자열로 상세 정보를 반환.
-        UI에서 <b>, <br> 태그로 렌더링 용이.
-        """
-        name = f"{self.last_name} {self.first_name}".strip()
-        created = format_mac_time(self.creation_date) if self.creation_date else "N/A"
-        modified = format_mac_time(self.modification_date) if self.modification_date else "N/A"
-        return (
-            f"<b>이름:</b> {name}<br>"
-            f"<b>소속:</b> {self.organization}<br>"
-            f"<b>전화번호:</b> {self.get_phone_number()}<br>"
-            f"<b>이메일:</b> {self.get_emails()}<br>"
-            f"<b>메모:</b> {self.note}<br><br>"
-            f"<b>생성일:</b> {created} ({self.creation_date})<br>"
-            f"<b>수정일:</b> {modified} ({self.modification_date})<br>"
-            f"<b>GUID:</b> {self.guid}<br>"
-        )
-    
-    
-class AddressBookAnalyzer:
-    """
-    iOS 백업에서 주소록 DB와 이미지 DB를 찾아
-    주소록 항목과 프로필 사진을 함께 로드하는 분석기 클래스.
-    """
+    DB_REL = os.path.join(
+        "31", "31bb7ba8914766d4ba40d6dfb6113c8b614be442"
+    )
 
     def __init__(self, backup_path: str):
-        self.backup_path = backup_path
-        self.helper = BackupPathHelper(backup_path)
-        self.entries: List[AddressBookEntry] = []
+        self.db_path = os.path.join(backup_path, self.DB_REL)
+        self.contacts: List[ContactRow] = []
 
-    def find_addressbook_db(self) -> Optional[str]:
-        """주소록 DB 파일 경로를 찾습니다."""
-        # 백업헬퍼를 사용하여 AddressBook.sqlitedb 파일 검색
-        results = self.helper.find_files_by_keyword("AddressBook.sqlitedb")
-        paths = self.helper.get_full_paths(results)
-        
-        # 파일 발견 시 첫 번째 경로 반환
-        if paths:
-            return paths[0][0]  # 첫 번째 파일의 전체 경로
-        
-        # 파일을 찾지 못하면 테이블 기반 검색 시도
-        return self._find_sqlite_with_tables(["ABPerson", "ABMultiValue"])
+    # ―― 메인 로드 ――
+    def load_contacts(self) -> Tuple[bool, str]:
+        if not os.path.exists(self.db_path):
+            return False, f"DB 파일이 없습니다: {self.db_path}"
 
-    def find_addressbook_images_db(self) -> Optional[str]:
-        """주소록 이미지 DB 파일 경로를 찾습니다."""
-        # 백업헬퍼를 사용하여 AddressBookImages.sqlitedb 파일 검색
-        results = self.helper.find_files_by_keyword("AddressBookImages.sqlitedb")
-        paths = self.helper.get_full_paths(results)
-        
-        # 파일 발견 시 첫 번째 경로 반환
-        if paths:
-            return paths[0][0]  # 첫 번째 파일의 전체 경로
-            
-        # 파일을 찾지 못하면 테이블 기반 검색 시도
-        return self._find_sqlite_with_tables(["ABFullSizeImage"])
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.cursor()
 
-    def _find_sqlite_with_tables(self, tables: List[str]) -> Optional[str]:
-        """지정된 테이블을 포함하는 SQLite 파일을 찾습니다."""
-        # 먼저 백업헬퍼로 .sqlitedb 파일 검색
-        results = self.helper.find_files_by_keyword(".sqlitedb")
-        paths = self.helper.get_full_paths(results)
-        
-        for full_path, _ in paths:
-            try:
-                conn = sqlite3.connect(full_path)
-                cursor = conn.cursor()
-                
-                # 모든 필요 테이블이 존재하는지 확인
-                tables_exist = True
-                for table in tables:
-                    cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'")
-                    if not cursor.fetchone():
-                        tables_exist = False
-                        break
-                
-                conn.close()
-                if tables_exist:
-                    return full_path
-            except sqlite3.Error:
-                continue
-                
-        return None
-
-    def load_entries(self) -> Tuple[bool, str]:
-        """
-        주소록 항목과 다중값을 DB에서 로드합니다.
-        반환: (성공여부, 메시지)
-        """
-        db = self.find_addressbook_db()
-        if not db:
-            return False, "AddressBook.sqlitedb를 찾을 수 없습니다."
-
-        conn = sqlite3.connect(db)
-        cur = conn.cursor()
-        # ABPerson 동적 컬럼 조회
-        cur.execute("PRAGMA table_info(ABPerson)")
-        cols = [c[1] for c in cur.fetchall()]
-        base = ["ROWID", "First", "Last", "Organization", "Note"]
-        select = [c for c in base if c in cols] + [c for c in cols if c not in base]
-
-        cur.execute(f"SELECT {','.join(select)} FROM ABPerson")
-        rows = cur.fetchall()
-        conn.close()
-
-        self.entries = []
-        for row in rows:
-            data = dict(zip(select, row))
-            entry = AddressBookEntry(
-                rowid=data["ROWID"],
-                first_name=data.get("First", ""),
-                last_name=data.get("Last", ""),
-                organization=data.get("Organization", ""),
-                note=data.get("Note", ""),
-                **{k: data.get(k) for k in select if k not in base},
+            # ABPerson 기본 정보
+            cur.execute(
+                """
+                SELECT ROWID, First, Last, Organization,
+                       CreationDate, ModificationDate
+                FROM ABPerson
+                """
             )
-            self.entries.append(entry)
+            base_rows = cur.fetchall()
 
-        # 다중값 로드
-        conn = sqlite3.connect(db)
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT MV.record_id, MV.value, LAB.value FROM ABMultiValue MV "
-            "LEFT JOIN ABMultiValueLabel LAB ON MV.label = LAB.ROWID"
-        )
-        for rec_id, val, lbl in cur.fetchall():
-            if ent := next((e for e in self.entries if e.rowid == rec_id), None):
-                ent.add_value(lbl, val)
-        conn.close()
+            # 전화번호 맵 만들기 (docid == ROWID)
+            cur.execute(
+                """
+                SELECT docid, c16Phone
+                FROM ABPersonFullTextSearch_content
+                """
+            )
+            phone_map = {doc: pick_cell_010(blob or "") for doc, blob in cur.fetchall()}
 
-        # 이미지 로드
-        self._load_images()
-        return True, f"주소록 {len(self.entries)}건 로드 완료"
+            conn.close()
 
-    def _load_images(self) -> None:
-        """주소록 프로필 이미지를 로드합니다."""
-        db = self.find_addressbook_images_db()
-        if not db:
-            return
-        conn = sqlite3.connect(db)
-        cur = conn.cursor()
-        cur.execute("SELECT record_id, data FROM ABFullSizeImage")
-        img_map = {rid: data for rid, data in cur.fetchall()}
-        conn.close()
-        for e in self.entries:
-            if data := img_map.get(e.rowid):
-                e.image = data
+            self.contacts = [
+                ContactRow(
+                    r[0],
+                    r[1] or "",
+                    r[2] or "",
+                    r[3] or "",
+                    r[4] or 0.0,
+                    r[5] or 0.0,
+                    phone_map.get(r[0], ""),
+                )
+                for r in base_rows
+            ]
+            return True, f"{len(self.contacts)}건 로드"
+        except Exception as e:
+            return False, f"DB 읽기 오류: {e}"
 
-    def get_entries(self) -> List[AddressBookEntry]:
-        """로드된 주소록 항목 리스트를 반환."""
-        return self.entries
-
-    def search_entries(self, query: str = "") -> List[AddressBookEntry]:
-        """
-        query가 비어 있으면 전체 반환.
-        이름·전화번호·소속 필드에 query 포함 항목 필터링.
-        """
-        if not query:
-            return self.entries
-        q = query.lower()
-        filtered: List[AddressBookEntry] = []
-        for e in self.entries:
-            name = f"{e.last_name} {e.first_name}".strip().lower()
-            phone = e.get_phone_number().lower().replace("-", "")
-            org = e.organization.lower()
-            if q in name or q in phone or q in org:
-                filtered.append(e)
-        return filtered
+    # ―― 검색 ――
+    def search(self, kw: str = "") -> List[ContactRow]:
+        if not kw:
+            return self.contacts
+        k = kw.lower()
+        return [
+            c
+            for c in self.contacts
+            if k in str(c.rowid)
+            or k in c.full_name.lower()
+            or k in c.org.lower()
+            or k in c.phone.replace("-", "")
+        ]
