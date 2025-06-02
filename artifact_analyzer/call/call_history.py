@@ -1,312 +1,217 @@
-"""
-CallHistoryAnalyzer 클래스
- - iOS 백업에서 CallHistory.storedata 파일을 로드하여 분석
- - ZCALLRECORD 테이블의 통화 기록을 처리
- - 삭제된 통화 기록 분석 기능 포함
-"""
-
 import os
 import sqlite3
+import base64
+import json
 from datetime import datetime
-from backup_analyzer.backuphelper import BackupPathHelper
+from typing import List, Optional, Tuple
 
-class CallRecord:
-    """통화 기록 데이터를 저장하는 클래스"""
-    
-    def __init__(self, z_pk, zdate, zduration, zaddress, zoriginated, zanswered):
-        self.z_pk = z_pk
-        self.raw_zdate = zdate
-        self.duration = zduration
-        self.address = zaddress
-        self.originated = zoriginated  # 0: 수신, 1: 발신
-        self.answered = zanswered  # 0: No, 1: Yes
-        
-    @property
-    def direction(self):
-        """통화 방향을 반환 (수신/발신)"""
-        return "발신" if self.originated == 1 else "수신"
-    
-    @property
-    def is_answered(self):
-        """통화 응답 여부를 반환"""
-        return "Yes" if self.answered == 1 else "No"
-    
-    @property
-    def call_date(self):
-        """통화 시간을 한국 형식으로 변환하여 반환"""
-        return format_korean_date(self.raw_zdate)
-    
-    def get_formatted_details(self):
-        """통화 기록의 상세 정보를 포맷팅하여 반환"""
-        details = f"통화 번호: {self.address}\n"
-        details += f"통화 시간: {self.call_date}\n"
-        details += f"통화 방향: {self.direction}\n"
-        details += f"통화 시간: {self.duration}초\n"
-        details += f"응답 여부: {self.is_answered}\n"
-        details += f"레코드 ID: {self.z_pk}\n"
-        
-        return details
+MAC_EPOCH_OFFSET = 978307200  # 2001-01-01 00:00:00 UTC
 
-# Mac epoch (2001-01-01)와 Unix epoch (1970-01-01)의 차이는 978307200초
-MAC_EPOCH_OFFSET = 978307200
 
-def format_korean_date(zdate):
-    """
-    ZDATE (Mac epoch 기준) 값을 받아,  
-    "YYYY년 M월 D일 요일 오전/오후 h:mm:ss GMT+09:00" 형식의 문자열로 변환합니다.
-    """
+# ---------- 공통 포맷터 ---------- #
+def format_korean_datetime(zdate: float) -> str:
     ts = zdate + MAC_EPOCH_OFFSET
     dt = datetime.fromtimestamp(ts)
-    # 요일: Python의 weekday()는 월요일이 0, 일요일이 6
-    weekdays = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
-    weekday = weekdays[dt.weekday()]
-    # 오전/오후 및 12시간제로 변환
-    if dt.hour < 12:
-        am_pm = "오전"
-        hour_12 = dt.hour if dt.hour != 0 else 12
-    else:
-        am_pm = "오후"
-        hour_12 = dt.hour - 12 if dt.hour != 12 else 12
-    return f"{dt.year}년 {dt.month}월 {dt.day}일 {weekday} {am_pm} {hour_12}:{dt.minute:02d}:{dt.second:02d} GMT+09:00"
+    weekday = ["월", "화", "수", "목", "금", "토", "일"][dt.weekday()]
+    ap = "오전" if dt.hour < 12 else "오후"
+    h12 = dt.hour if dt.hour in (0, 12) else dt.hour % 12
+    return f"{dt.year}-{dt.month:02d}-{dt.day:02d}({weekday}) {ap} {h12}:{dt.minute:02d}:{dt.second:02d}"
 
+
+def format_duration(sec: float) -> str:
+    if sec < 60:
+        return f"{sec:.1f}초"
+    m = int(sec) // 60
+    r = sec - m * 60
+    return f"{m}분" if r < 0.05 else f"{m}분 {r:.1f}초"
+
+
+# ---------- DTO ---------- #
+class CallRecord:
+    """단일 통화 기록"""
+
+    def __init__(
+        self,
+        z_pk: int,
+        ztype: int,
+        zvalue: str,
+        zname: str,
+        zdate: float,
+        zduration: float,
+        zaddress_raw,
+        service_provider: Optional[str],
+        z_opt: int,
+    ):
+        self.z_pk = z_pk                # 내부 식별용
+        self.ztype = ztype
+        self.zvalue = zvalue or ""
+        self.phone_number = self._extract_display_name_or_value(self.zvalue)
+        self.zname = zname or ""
+        self.zdate = zdate or 0.0
+        self.zduration = float(zduration or 0)
+        self.zaddress_raw = zaddress_raw
+        self.caller_name = self._try_base64(zaddress_raw)
+
+        # Service: 마지막 '.' 뒤 토큰
+        self.service_raw = service_provider or ""
+        self.service = self.service_raw.split(".")[-1] if self.service_raw else ""
+
+        self.z_opt = z_opt  # 2=Incoming, 1=Outgoing
+
+    # ---- 계산 필드 ---- #
+    @property
+    def direction(self) -> str:
+        return "Incoming" if self.z_opt == 2 else ("Outgoing" if self.z_opt == 1 else "")
+
+    @property
+    def date_str(self) -> str:
+        return format_korean_datetime(self.zdate)
+
+    @property
+    def duration_str(self) -> str:
+        return format_duration(self.zduration)
+
+    # ---- 내부 유틸 ---- #
+    @staticmethod
+    def _try_base64(data) -> str:
+        if not data:
+            return ""
+        try:
+            raw = data if isinstance(data, (bytes, bytearray)) else str(data).encode()
+            return base64.b64decode(raw, validate=True).decode("utf-8", "ignore")
+        except Exception:
+            return str(data)
+
+    def _extract_display_name_or_value(self, raw_val: str) -> str:
+        decoded = self._try_base64(raw_val)
+        try:
+            obj = json.loads(decoded)
+            if isinstance(obj, dict) and "threadDisplayName" in obj:
+                return obj["threadDisplayName"]
+        except Exception:
+            pass
+        return decoded or str(raw_val)
+
+
+# ---------- Analyzer ---------- #
 class CallHistoryAnalyzer:
-    """iOS 통화 기록 분석기 클래스"""
-    
-    def __init__(self, backup_path):
-        """
-        초기화 함수
-        
-        Args:
-            backup_path: iOS 백업 경로
-        """
+    """iOS 통화 기록 파서"""
+
+    def __init__(self, backup_path: str):
         self.backup_path = backup_path
-        self.db_path = None
-        self.call_records = []
-        self.max_pk = 0
-        self.record_count = 0
-        self.backup_helper = BackupPathHelper(backup_path)
-        
-    def find_callhistory_database(self):
-        """
-        백업 경로에서 CallHistory.storedata 파일을 찾음
+        self.db_path: Optional[str] = None
+        self.call_records: List[CallRecord] = []
 
-        Returns:
-            tuple: (성공 여부, 메시지)
-        """
-        if not self.backup_path:
-            return False, "백업 경로가 설정되지 않았습니다."
+    # DB 경로
+    def _resolve_db_path(self) -> Tuple[bool, str]:
+        fixed = os.path.join(
+            self.backup_path, "5a", "5a4935c78a5255723f707230a451d79c540d2741"
+        )
+        if os.path.exists(fixed):
+            self.db_path = fixed
+            return True, fixed
+        return False, f"통화 DB 없음: {fixed}"
 
-        manifest_path = os.path.join(self.backup_path, "Manifest.db")
-        if not os.path.exists(manifest_path):
-            return False, "Manifest.db 파일을 찾을 수 없습니다."
+    # 연락처 DB 경로 (Name 보완용)
+    def _resolve_contacts_path(self) -> Optional[str]:
+        path = os.path.join(
+            self.backup_path, "31", "31bb7ba8914766d4ba40d6dfb6113c8b614be442"
+        )
+        return path if os.path.exists(path) else None
 
-        # 'CallHistory'와 '.storedata' 키워드로 파일 검색
-        search_results = self.backup_helper.find_files_by_keyword('CallHistory', '.storedata')
-        
-        if not search_results:
-            # 다른 키워드 조합으로 시도
-            search_results = self.backup_helper.find_files_by_keyword('CallHistoryDB')
-        
-        if search_results:
-            full_paths = self.backup_helper.get_full_paths(search_results)
-            
-            if full_paths:
-                # 첫 번째 발견된 파일을 사용
-                self.db_path, relative_path = full_paths[0]
-                return True, f"CallHistory.storedata 파일을 찾았습니다: {relative_path}"
-        
-        return False, "CallHistory.storedata 파일을 찾을 수 없습니다."
+    # 메인 로드
+    def load_call_records(self) -> Tuple[bool, str]:
+        ok, msg = self._resolve_db_path()
+        if not ok:
+            return False, msg
 
-    
-    def load_call_records(self):
-        """
-        통화 기록 데이터 로드
-        
-        Returns:
-            tuple: (성공 여부, 메시지)
-        """
-        if not self.db_path:
-            success, message = self.find_callhistory_database()
-            if not success:
-                return False, message
-        
         try:
             conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # ZCALLRECORD 테이블에서 통화 기록 데이터 가져오기
-            query = """
-                SELECT 
-                    Z_PK,
-                    ZDATE,
-                    ZDURATION,
-                    ZADDRESS,
-                    ZORIGINATED,
-                    ZANSWERED
-                FROM ZCALLRECORD
-                ORDER BY ZDATE DESC;
-            """
-            cursor.execute(query)
-            records = cursor.fetchall()
-            
-            # 최대 PK 값과 레코드 수 가져오기 (삭제 분석용)
-            cursor.execute("SELECT MAX(Z_PK) FROM ZCALLRECORD;")
-            self.max_pk = cursor.fetchone()[0] or 0
-            
-            cursor.execute("SELECT COUNT(*) FROM ZCALLRECORD;")
-            self.record_count = cursor.fetchone()[0] or 0
-            
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT
+                    h.Z_PK,             -- 0
+                    h.ZTYPE,            -- 1
+                    h.ZVALUE,           -- 2
+                    c.ZNAME,            -- 3
+                    c.ZDATE,            -- 4
+                    c.ZDURATION,        -- 5
+                    c.ZADDRESS,         -- 6
+                    c.ZSERVICE_PROVIDER,-- 7
+                    c.Z_OPT             -- 8 (2=In,1=Out)
+                FROM ZHANDLE h
+                INNER JOIN ZCALLRECORD c ON c.Z_PK = h.Z_PK
+                ORDER BY c.ZDATE DESC;
+                """
+            )
+            self.call_records = [CallRecord(*row) for row in cur.fetchall()]
             conn.close()
-            
-            # 통화 기록 객체 생성
-            self.call_records = []
-            for record in records:
-                z_pk, zdate, zduration, zaddress, zoriginated, zanswered = record
-                call_record = CallRecord(z_pk, zdate, zduration, zaddress, zoriginated, zanswered)
-                self.call_records.append(call_record)
-            
-            return True, f"{len(self.call_records)}개의 통화 기록을 로드했습니다."
+
+            self._patch_missing_names()
+            return True, f"{len(self.call_records)}개의 기록"
         except Exception as e:
-            return False, f"통화 기록 로드 중 오류 발생: {str(e)}"
-    
-    def get_deleted_record_info(self):
-        """
-        삭제된 통화 기록 분석 정보 반환
-        
-        Returns:
-            dict: 분석 정보 (최대 PK, 총 레코드 수, 삭제된 레코드 수)
-        """
-        missing_count = self.max_pk - self.record_count if self.max_pk and self.record_count else 0
-        
-        return {
-            "max_pk": self.max_pk,
-            "record_count": self.record_count,
-            "missing_count": missing_count
-        }
-    
-    def search_call_records(self, search_query="", call_type=None, date_range=None):
-        """
-        통화 기록 검색
-        
-        Args:
-            search_query: 검색어 (전화번호, 시간 등)
-            call_type: 통화 유형 필터 ("모든 통화", "수신 통화", "발신 통화", "부재중 통화")
-            date_range: 날짜 범위 필터
-            
-        Returns:
-            list: 검색 조건에 맞는 CallRecord 객체 리스트
-        """
-        if not self.call_records:
-            return []
-        
-        # 기본 결과는 모든 기록
-        filtered_records = self.call_records
-        
-        # 검색어 필터링
-        if search_query:
-            search_query = search_query.lower()
-            filtered_records = [record for record in filtered_records if 
-                               (search_query in record.address.lower() or 
-                                search_query in record.call_date.lower() or 
-                                search_query in record.direction.lower())]
-        
-        # 통화 유형 필터링
-        if call_type and call_type != "모든 통화":
-            if call_type == "수신 통화":
-                filtered_records = [record for record in filtered_records if record.originated == 0 and record.answered == 1]
-            elif call_type == "발신 통화":
-                filtered_records = [record for record in filtered_records if record.originated == 1]
-            elif call_type == "부재중 통화":
-                filtered_records = [record for record in filtered_records if record.originated == 0 and record.answered == 0]
-        
-        # 날짜 범위 필터링 (간단한 구현 - 실제로는 더 복잡할 수 있음)
-        if date_range and date_range != "전체":
-            now = datetime.now()
-            today_start = datetime(now.year, now.month, now.day).timestamp() - MAC_EPOCH_OFFSET
-            yesterday_start = today_start - 86400  # 하루는 86400초
-            
-            if date_range == "오늘":
-                filtered_records = [record for record in filtered_records if record.raw_zdate >= today_start]
-            elif date_range == "어제":
-                filtered_records = [record for record in filtered_records if yesterday_start <= record.raw_zdate < today_start]
-            # 이번 주, 이번 달 등의 필터링도 필요에 따라 추가할 수 있음
-        
-        return filtered_records
-    
-    def get_call_statistics(self):
-        """
-        통화 기록 통계 정보 반환
-        
-        Returns:
-            dict: 통계 정보 (총 통화 수, 발신 통화 수, 수신 통화 수, 부재중 통화 수)
-        """
-        if not self.call_records:
-            return {
-                "total_calls": 0,
-                "outgoing_calls": 0,
-                "incoming_calls": 0,
-                "missed_calls": 0,
-                "total_duration": 0,
-                "avg_duration": 0,
-                "max_duration": 0,
-                "top_called_number": None
-            }
-        
-        total_calls = len(self.call_records)
-        outgoing_calls = sum(1 for record in self.call_records if record.originated == 1)
-        incoming_calls = sum(1 for record in self.call_records if record.originated == 0 and record.answered == 1)
-        missed_calls = sum(1 for record in self.call_records if record.originated == 0 and record.answered == 0)
-        
-        # 통화 시간 관련 통계
-        total_duration = sum(record.duration for record in self.call_records)
-        avg_duration = total_duration / total_calls if total_calls > 0 else 0
-        max_duration = max((record.duration for record in self.call_records), default=0)
-        
-        # 가장 많이 통화한 번호 찾기
-        number_count = {}
-        for record in self.call_records:
-            number_count[record.address] = number_count.get(record.address, 0) + 1
-        
-        top_called_number = max(number_count.items(), key=lambda x: x[1])[0] if number_count else None
-        
-        return {
-            "total_calls": total_calls,
-            "outgoing_calls": outgoing_calls,
-            "incoming_calls": incoming_calls,
-            "missed_calls": missed_calls,
-            "total_duration": total_duration,
-            "avg_duration": avg_duration,
-            "max_duration": max_duration,
-            "top_called_number": top_called_number
-        }
-    
-    def get_calls_by_date(self):
-        """
-        날짜별 통화 횟수 집계를 반환
-        
-        Returns:
-            dict: {날짜: 통화 횟수} 형태의 딕셔너리
-        """
-        date_counts = {}
-        for record in self.call_records:
-            date_str = format_korean_date(record.raw_zdate).split()[0]  # YYYY년 M월 D일 추출
-            date_counts[date_str] = date_counts.get(date_str, 0) + 1
-        
-        return date_counts
-    
-    def get_calls_by_type(self):
-        """
-        유형별 통화 횟수 집계를 반환
-        
-        Returns:
-            dict: 유형별 통화 횟수
-        """
-        incoming_answered = sum(1 for record in self.call_records if record.originated == 0 and record.answered == 1)
-        outgoing = sum(1 for record in self.call_records if record.originated == 1)
-        missed = sum(1 for record in self.call_records if record.originated == 0 and record.answered == 0)
-        
-        return {
-            "수신 통화": incoming_answered,
-            "발신 통화": outgoing,
-            "부재중 통화": missed
-        }
+            return False, f"통화 DB 오류: {e}"
+
+    # 이름 보완
+    def _patch_missing_names(self):
+        contacts_db = self._resolve_contacts_path()
+        if not contacts_db:
+            return
+        try:
+            conn = sqlite3.connect(contacts_db)
+            cur = conn.cursor()
+            for rec in self.call_records:
+                if rec.zname:
+                    continue
+                digits = self._digits_only(rec.phone_number or rec.zvalue)
+                if not digits:
+                    continue
+                cur.execute(
+                    """
+                    SELECT docid
+                    FROM ABPersonFullTextSearch_content
+                    WHERE c16Phone LIKE ?
+                    LIMIT 1;
+                    """,
+                    (f"%{digits}%",),
+                )
+                row = cur.fetchone()
+                if not row:
+                    continue
+                docid = row[0]
+                cur.execute(
+                    "SELECT First, Last FROM ABPerson WHERE ROWID = ? LIMIT 1;",
+                    (docid,),
+                )
+                person = cur.fetchone()
+                if not person:
+                    continue
+                first, last = person
+                patched = " ".join(p for p in (last, first) if p).strip()
+                if patched:
+                    rec.zname = patched
+            conn.close()
+        except Exception:
+            pass  # 무시
+
+    @staticmethod
+    def _digits_only(text: str) -> str:
+        return "".join(ch for ch in text if ch.isdigit())
+
+    # 검색
+    def search(self, kw: str = "") -> List[CallRecord]:
+        if not kw:
+            return self.call_records
+        k = kw.lower()
+        return [
+            r
+            for r in self.call_records
+            if k in r.phone_number.lower()
+            or k in r.zvalue.lower()
+            or k in r.zname.lower()
+            or k in r.date_str.lower()
+            or k in r.duration_str.lower()
+            or k in r.service.lower()
+            or k in r.direction.lower()
+        ]
