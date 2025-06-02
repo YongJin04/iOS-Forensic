@@ -14,13 +14,14 @@ import subprocess
 # ────────────────────────────────────────────────────────────
 try:
     from PIL import Image, ImageTk  # 이미지 미리보기
-except ImportError:  # 최소 동작 보장
+except ImportError:
     Image = ImageTk = None
 
-try:
-    from pdf2image import convert_from_path  # PDF 1page → 이미지
-except ImportError:
-    convert_from_path = None
+# PDF 미리보기 제거됨
+# try:
+#     from pdf2image import convert_from_path
+# except ImportError:
+#     convert_from_path = None
 
 # ────────────────────────────────────────────────────────────
 # DB → Python
@@ -60,13 +61,11 @@ def fetch_iCloud_items(backup_path: str):
 
     return rows
 
-
 # ────────────────────────────────────────────────────────────
 # Helper – 백업 경로 검색 & 외부 열기
 # ────────────────────────────────────────────────────────────
 
 def _find_backup_file(dest_root: Path, filename: str) -> Path | None:
-    """dest_root 이하에서 filename과 정확히 일치하는 첫 파일 반환"""
     if not dest_root.exists():
         return None
     for p in dest_root.rglob('*'):
@@ -74,9 +73,7 @@ def _find_backup_file(dest_root: Path, filename: str) -> Path | None:
             return p
     return None
 
-
 def _open_external(filepath: Path):
-    """OS 기본 앱으로 열기"""
     try:
         if platform.system() == "Windows":
             os.startfile(filepath)
@@ -87,24 +84,20 @@ def _open_external(filepath: Path):
     except Exception as e:
         messagebox.showerror("Open Error", str(e))
 
-
 # ────────────────────────────────────────────────────────────
 # UI
 # ────────────────────────────────────────────────────────────
 
 def display_iCloud(content_frame, backup_path: str):
-    # ── 0. 초기화
     for w in content_frame.winfo_children():
         w.destroy()
 
-    # ── 1. 좌·우 패널
     left  = ttk.Frame(content_frame)
     right = ttk.Frame(content_frame, width=360)
     left.pack(side="left", fill="both", expand=True)
     right.pack(side="left", fill="both")
     right.pack_propagate(False)
 
-    # ── 2. 헤더 + 버튼
     header = ttk.Frame(left)
     header.pack(anchor="w", pady=(0, 6), fill="x")
 
@@ -135,7 +128,6 @@ def display_iCloud(content_frame, backup_path: str):
 
     ttk.Button(header, text="iCloud 연동", command=link_icloud).pack(side="left", padx=(10, 0))
 
-    # ── 3. Treeview
     table = ttk.Frame(left)
     table.pack(fill="both", expand=True)
 
@@ -158,7 +150,6 @@ def display_iCloud(content_frame, backup_path: str):
     vsb.grid(row=0, column=1, sticky="ns")
     hsb.grid(row=1, column=0, sticky="ew")
 
-    # ── 4. 데이터
     data = fetch_iCloud_items(backup_path)
 
     def populate():
@@ -169,7 +160,6 @@ def display_iCloud(content_frame, backup_path: str):
 
     populate()
 
-    # ── 5. 상태 라벨
     status_lbl = ttk.Label(right, justify="center")
     status_lbl.pack(expand=True)
 
@@ -178,11 +168,10 @@ def display_iCloud(content_frame, backup_path: str):
         if dest_root.exists():
             status_lbl.config(text="✅  iCloud 연동됨.\n미리보기 가능")
         else:
-            status_lbl.config(text="⚠️  iCloud 연동 필요.\n미리보기 불가능")
+            status_lbl.config(text="⚠️  iCloud 연동 필요.\n미리보기 불가")
 
     update_status_label()
 
-    # ── 6. 선택 이벤트 – 파일 미리보기
     def _preview_selected(_e=None):
         sel = tree.selection()
         if not sel:
@@ -194,7 +183,6 @@ def display_iCloud(content_frame, backup_path: str):
         dest_root = Path(backup_path) / "iCloud_Drive_Backup"
         file_path = _find_backup_file(dest_root, fname)
 
-        # 우측 패널 클리어
         for w in right.winfo_children():
             w.destroy()
 
@@ -204,33 +192,26 @@ def display_iCloud(content_frame, backup_path: str):
 
         ext = file_path.suffix.lower()
 
-        # 이미지 → 직접 표시
         if ext in {'.png', '.jpg', '.jpeg', '.gif'} and Image and ImageTk:
             try:
                 img = Image.open(file_path)
                 img.thumbnail((340, 340))
                 photo = ImageTk.PhotoImage(img)
                 lbl = ttk.Label(right, image=photo)
-                lbl.image = photo  # GC 방지
+                lbl.image = photo
                 lbl.pack(expand=True)
             except Exception as e:
                 ttk.Label(right, text=f"⚠️ 이미지 로드 오류: {e}").pack(expand=True)
 
-        # PDF → 첫 페이지 이미지 변환 (pdf2image 필요)
-        elif ext == '.pdf' and convert_from_path and ImageTk:
-            try:
-                pages = convert_from_path(str(file_path), first_page=1, last_page=1, size=(340, None))
-                if pages:
-                    pages[0].thumbnail((340, 340))
-                    photo = ImageTk.PhotoImage(pages[0])
-                    lbl = ttk.Label(right, image=photo)
-                    lbl.image = photo
-                    lbl.pack(expand=True)
-            except Exception as e:
-                ttk.Label(right, text=f"⚠️ PDF 미리보기 실패: {e}").pack(expand=True)
+        elif ext == '.pdf':
+            ttk.Label(right, text=f"📄  {file_path.name}").pack(pady=(60, 10))
+            ttk.Button(
+                right,
+                text="외부 앱으로 열기",
+                command=lambda p=file_path: _open_external(p)
+            ).pack()
 
-        # mp4 / pptx / docx 등 → 외부 앱으로 열기 버튼
-        elif ext in {'.mp4', '.pptx', '.docx', '.pdf'}:
+        elif ext in {'.mp4', '.pptx', '.docx'}:
             ttk.Label(right, text=f"📄  {file_path.name}").pack(pady=(60, 10))
             ttk.Button(
                 right,
