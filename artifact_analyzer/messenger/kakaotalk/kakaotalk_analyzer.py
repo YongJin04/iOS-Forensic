@@ -250,8 +250,12 @@ class KakaoTalkAnalyzer:
                 participants_raw = row['participants'] or ''
                 participants = participants_raw.split(',') if participants_raw else []
 
-                # 나머지는 동일
-                chat_title = ', '.join([user[1] for user in users if str(user[0]) in participants]) or 'None'
+                # 유효한 이름만 필터링하여 리스트 생성
+                user_names = [user[1] for user in users if str(user[0]) in participants and user[1]]
+
+                # 이름이 있는 경우만 쉼표로 연결, 없으면 'None'
+                chat_title = ', '.join(user_names) if user_names else 'None'
+
                 conversations.append({
                     'chatId': row['chatId'],
                     'handle_id': row['chatId'],
@@ -260,7 +264,7 @@ class KakaoTalkAnalyzer:
 
             return conversations
         except sqlite3.Error as e:
-            print(f"대화 목록 조회 오류: {e}")
+            pass
             return []
     
     def get_conversation_messages(self, handle_rowid):

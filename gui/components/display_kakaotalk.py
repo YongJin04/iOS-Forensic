@@ -271,7 +271,18 @@ def display_kakaotalk(parent_frame, backup_path):
                     ttk.Label(content_frame, text=f"[이미지 로드 오류: {str(e)}]", style="Text.TLabel").pack(pady=5)
         # else:
             # 첨부파일이 없으면 메시지 텍스트를 처리
-        message_text = 'Message (Encrypted): ' + message["message"] + '\n\nAttachment (Encrypted): ' + message['attachment']
+        message_text = ''
+        msg = message.get("message", "{}")
+        att = message.get("attachment", "{}")
+
+        if msg and msg != "{}":
+            message_text += msg
+
+        elif att and att != "{}":
+            if message_text:
+                message_text += '\n\n'
+            message_text += att
+
         if message_text:
             # 텍스트 내 URL을 감지하여 하이퍼링크 처리 후 출력
             create_hyperlink_text(content_frame, message_text, bubble_color, int(available_width * 0.7))
@@ -286,8 +297,6 @@ def display_kakaotalk(parent_frame, backup_path):
     try:
         # 백엔드에서 대화 목록을 불러옵니다.
         conversations = kakaotalk_analyzer.get_conversations()
-        # print(conversations)
-        # messagebox.showerror("오류", f"대화 목록 로드 중 오류가 발생했습니다: {str(conversations)}")
 
         if not conversations:
             # 대화 상대가 없을 경우 안내 메시지 표시
