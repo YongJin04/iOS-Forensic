@@ -6,8 +6,6 @@ def find_safari_bookmarks(backup_path=None):
     """
     Safari 북마크 데이터베이스 (Bookmarks.db) 파일 경로 찾기
     """
-
-    print(f"[DEBUG] Instagram plist 파일 검색 시작, 경로: {backup_path}")
     
     if not backup_path or not os.path.exists(backup_path):
         print(f"[ERROR] 유효한 백업 경로가 필요합니다: {backup_path}")

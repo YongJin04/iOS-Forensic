@@ -68,15 +68,6 @@ def fetch_thumbnails(browser_name, thumbnail_canvas, backup_path):
         if browser_name == "Safari":
             thumbnails = get_safari_thumbnails(backup_path, max_thumbnails=50)
             display_thumbnails(thumbnail_canvas, thumbnails, browser_name)
-        elif browser_name == "Chrome":
-            thumbnails = get_chrome_thumbnails(backup_path, max_thumbnails=50)
-            display_thumbnails(thumbnail_canvas, thumbnails, browser_name)
-        elif browser_name == "Firefox":
-            thumbnails = get_firefox_thumbnails(backup_path, max_thumbnails=50)
-            display_thumbnails(thumbnail_canvas, thumbnails, browser_name)
-        elif browser_name == "Edge":
-            thumbnails = get_edge_thumbnails(backup_path, max_thumbnails=50)
-            display_thumbnails(thumbnail_canvas, thumbnails, browser_name)
         else:
             display_no_thumbnails_message(thumbnail_canvas, browser_name)
     

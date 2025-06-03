@@ -21,15 +21,15 @@ def display_browser(content_frame, backup_path):
     header_frame = ttk.Frame(content_frame)
     header_frame.pack(fill="x", pady=(0, 10))
     
-    ttk.Label(header_frame, text="🌐 브라우저", style="ContentHeader.TLabel").pack(side="left")
+    ttk.Label(header_frame, text="🌐 Browser", style="ContentHeader.TLabel").pack(side="left")
     
     # 브라우저 선택 프레임 추가
     browser_select_frame = ttk.Frame(content_frame)
     browser_select_frame.pack(fill="x", pady=(5, 10))
     
-    ttk.Label(browser_select_frame, text="브라우저 선택:").pack(side="left", padx=(0, 5))
+    ttk.Label(browser_select_frame, text="Select Browser:").pack(side="left", padx=(0, 5))
     browser_var = tk.StringVar(value="Safari")
-    browser_combo = ttk.Combobox(browser_select_frame, textvariable=browser_var, values=["Chrome", "Safari", "Firefox", "Edge"])
+    browser_combo = ttk.Combobox(browser_select_frame, textvariable=browser_var, values=["Safari", "Chrome"])
     browser_combo.pack(side="left", padx=(0, 10))
     
     ttk.Separator(content_frame, orient="horizontal").pack(fill="x", pady=(0, 15))
@@ -40,15 +40,15 @@ def display_browser(content_frame, backup_path):
     
     # 검색기록 탭
     history_frame = ttk.Frame(notebook)
-    notebook.add(history_frame, text="검색 기록")
+    notebook.add(history_frame, text="Visit URL")
     
     # 북마크 탭
     bookmark_frame = ttk.Frame(notebook)
-    notebook.add(bookmark_frame, text="북마크")
+    notebook.add(bookmark_frame, text="Bookmark")
     
     # 썸네일 탭 추가
     thumbnail_frame = ttk.Frame(notebook)
-    notebook.add(thumbnail_frame, text="썸네일")
+    notebook.add(thumbnail_frame, text="Thumbnail")
     
     # 각 탭에 대한 UI 구성
     history_tree = create_history_ui(history_frame)
