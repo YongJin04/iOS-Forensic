@@ -11,3 +11,4 @@ pycryptodome==3.22.0
 iphone_backup_decrypt==0.9.0
 fastpbkdf2==0.2
 pandas==2.2.3
+pillow-heif==0.22.0

@@ -44,7 +44,7 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
         {"name": "instagram", "icon": "💬", "command": lambda: display_instagram(content_frame, backup_path_var.get())},
         {"name": "Contact", "icon": "📗", "command": lambda: display_contact_content(content_frame, backup_path_var.get())},
         {"name": "Call History", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},  # Added new category
-        {"name": "SMS", "icon": "✉️", "command": lambda: display_sms(content_frame, backup_path_var.get())},  # Added SMS category
+        {"name": "iMessage", "icon": "✉️", "command": lambda: display_imessage(content_frame, backup_path_var.get())},  # Added SMS category
         {"name": "Calendar", "icon": "📅", "command": lambda: display_calendar(content_frame, backup_path_var.get())},  # Added Calrendar category
         {"name": "Notes", "icon": "📝", "command": lambda: display_notes(content_frame, backup_path_var.get())},  # 추가됨
         {"name": "Gallery", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
