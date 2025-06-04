@@ -14,3 +14,7 @@ pandas==2.2.3
 pillow-heif==0.22.0
 pyicloud==1.0.0
 tqdm==4.67.1
+PyMuPDF==1.26.0
+python-docx==1.1.2
+python-pptx==1.0.2
+Spire.Presentation==10.1.0

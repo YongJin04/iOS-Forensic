@@ -14,13 +14,13 @@ from pyicloud.exceptions import (
 from tqdm import tqdm
 
 # ────────────────────────────────────────────────────────────
-# 1. Apple ID 인증
+# 1. Apple ID Authentication
 # ────────────────────────────────────────────────────────────
 def _login(email: str | None = None, password: str | None = None) -> PyiCloudService:
     if email is None:
-        email = input("Apple ID (이메일): ").strip()
+        email = input("Apple ID (email): ").strip()
     if password is None:
-        password = getpass("암호: ").strip()
+        password = getpass("Password: ").strip()
     return PyiCloudService(email, password)
 
 def authenticate(email: str | None = None,
@@ -32,21 +32,21 @@ def authenticate(email: str | None = None,
         cookie_dir = Path.home() / ".pyicloud"
         if cookie_dir.exists():
             shutil.rmtree(cookie_dir, ignore_errors=True)
-            print("⚠️  손상된 세션 쿠키를 삭제했습니다. 다시 로그인합니다.")
+            print("⚠️  Corrupted session cookies deleted. Retrying login.")
         api = _login(email, password)
 
     if api.requires_2fa:
-        code = code_cb() if code_cb else input("신뢰된 기기에 표시된 6자리 2FA 코드: ").strip()
+        code = code_cb() if code_cb else input("Enter the 6-digit 2FA code shown on your trusted device: ").strip()
         if not api.validate_2fa_code(code):
-            sys.exit("❌ 2차 인증 실패 – 종료")
+            sys.exit("❌ 2FA authentication failed – exiting")
         api.trust_session()
     if not api.is_trusted_session:
-        sys.exit("❌ 세션 신뢰 실패 – 종료")
+        sys.exit("❌ Failed to trust session – exiting")
     return api
 
 
 # ────────────────────────────────────────────────────────────
-# 2. 파일·폴더 이름 정리
+# 2. File/Folder Name Sanitization
 # ────────────────────────────────────────────────────────────
 _WINDOWS_FORBIDDEN = re.compile(r'[<>:"/\\|?*]')
 
@@ -58,7 +58,7 @@ def sanitize(name: str) -> str:
 
 
 # ────────────────────────────────────────────────────────────
-# 3. 단일 파일 다운로드 + 503 오류 처리
+# 3. Single File Download + 503 Error Handling
 # ────────────────────────────────────────────────────────────
 _MAX_RETRY = 5
 _RETRY_BACKOFF = 3
@@ -71,7 +71,7 @@ def download_file(cloud_file,
     local_path.parent.mkdir(parents=True, exist_ok=True)
     total = getattr(cloud_file, "size", None)
     if total and local_path.exists() and local_path.stat().st_size == total:
-        log_func and log_func(f"{local_path.name}: 이미 있음 ({total//1024}k)")
+        log_func and log_func(f"{local_path.name}: Already exists ({total//1024}k)")
         return
 
     bar = tqdm(total=total, unit="B", unit_scale=True,
@@ -114,7 +114,7 @@ def download_file(cloud_file,
                 raise
 
             delay = _RETRY_BACKOFF * (2 ** (attempt - 1))
-            log_func and log_func(f"⚠️  503 오류로 {delay}s 후 재시도 "
+            log_func and log_func(f"⚠️  503 error – retrying in {delay}s "
                                   f"({attempt}/{_MAX_RETRY})")
             time.sleep(delay)
             bar.reset()
@@ -126,7 +126,7 @@ def download_file(cloud_file,
 
 
 # ────────────────────────────────────────────────────────────
-# 4. 폴더/루트 재귀 순회
+# 4. Recursive Folder/Root Traversal
 # ────────────────────────────────────────────────────────────
 def recurse_download(node, target_dir: Path, log_func=None):
     ntype = getattr(node, "type", "root")
@@ -140,7 +140,7 @@ def recurse_download(node, target_dir: Path, log_func=None):
 
 
 # ────────────────────────────────────────────────────────────
-# 5-A. GUI 모드
+# 5-A. GUI Mode
 # ────────────────────────────────────────────────────────────
 def gui_download(parent: tk.Misc | None = None,
                  dest_root: Path | None = None,
@@ -148,7 +148,7 @@ def gui_download(parent: tk.Misc | None = None,
     dest_root = dest_root or (Path.cwd() / "iCloud_Drive_Backup")
 
     win = tk.Toplevel(parent)
-    win.title("iCloud 계정 연동")
+    win.title("iCloud Account Login")
     win.minsize(450, 280)
     win.resizable(True, True)
 
@@ -158,7 +158,7 @@ def gui_download(parent: tk.Misc | None = None,
     win.columnconfigure(0, weight=1)
 
     ttk.Label(frm, text="Apple ID").grid(row=0, column=0, sticky="e")
-    ttk.Label(frm, text="암호").grid(row=1, column=0, sticky="e", pady=(6, 0))
+    ttk.Label(frm, text="Password").grid(row=1, column=0, sticky="e", pady=(6, 0))
 
     entry_id = ttk.Entry(frm)
     entry_pw = ttk.Entry(frm, show="•")
@@ -185,29 +185,29 @@ def gui_download(parent: tk.Misc | None = None,
         email = entry_id.get().strip()
         pw = entry_pw.get().strip()
         if not email or not pw:
-            messagebox.showwarning("입력 오류", "Apple ID와 암호를 모두 입력하세요.", parent=win)
+            messagebox.showwarning("Input Error", "Please enter both Apple ID and password.", parent=win)
             return
 
         btn_start.config(state="disabled")
         progress.start(10)
-        safe_log("🔐 iCloud 인증 중…")
+        safe_log("🔐 Authenticating with iCloud…")
 
         def worker():
             try:
                 code_prompt = lambda: simpledialog.askstring(
                     "2-Factor Authentication",
-                    "신뢰된 기기에 표시된 6자리 코드를 입력하세요",
+                    "Enter the 6-digit code shown on your trusted device",
                     parent=win,
                 ) or ""
 
                 api = authenticate(email, pw, code_prompt)
-                safe_log("✅ 로그인 성공 – 백업 시작")
+                safe_log("✅ Login successful – starting backup")
                 recurse_download(api.drive, dest_root, log_func=safe_log)
-                safe_log("🎉 모든 파일 다운로드 완료!")
-                messagebox.showinfo("다운로드 완료", "iCloud 백업이 완료되었습니다.", parent=win)
+                safe_log("🎉 All files downloaded successfully!")
+                messagebox.showinfo("Download Complete", "iCloud backup is complete.", parent=win)
             except Exception as e:
-                safe_log(f"❌ 오류: {e}")
-                messagebox.showerror("오류", str(e), parent=win)
+                safe_log(f"❌ Error: {e}")
+                messagebox.showerror("Error", str(e), parent=win)
             finally:
                 progress.stop()
                 btn_start.config(state="normal")
@@ -216,7 +216,7 @@ def gui_download(parent: tk.Misc | None = None,
 
         threading.Thread(target=worker, daemon=True).start()
 
-    btn_start = ttk.Button(frm, text="연동 시작", command=start_download, width=18)
+    btn_start = ttk.Button(frm, text="Start Sync", command=start_download, width=18)
     btn_start.grid(row=4, column=0, columnspan=2, pady=(12, 0))
 
     win.grab_set()
@@ -224,12 +224,12 @@ def gui_download(parent: tk.Misc | None = None,
 
 
 # ────────────────────────────────────────────────────────────
-# 5-B. CLI 모드
+# 5-B. CLI Mode
 # ────────────────────────────────────────────────────────────
 def main() -> None:
     api = authenticate()
     dest_root = Path.cwd() / "iCloud_Drive_Backup"
-    print(f"📂 {dest_root} 경로로 백업을 시작합니다…")
+    print(f"📂 Starting backup to: {dest_root}")
     recurse_download(api.drive, dest_root, log_func=print)
 
 if __name__ == "__main__":

@@ -5,49 +5,25 @@ from pathlib import Path
 from datetime import datetime
 import unicodedata
 from importlib import import_module
-import os
-import platform
-import subprocess
 
-# ────────────────────────────────────────────────────────────
-# 선택적 외부 라이브러리 – 없으면 축소 동작
-# ────────────────────────────────────────────────────────────
-try:
-    from PIL import Image, ImageTk  # 이미지 미리보기
-except ImportError:
-    Image = ImageTk = None
+from gui.components.document_ui.document_utils import render_preview
 
-# PDF 미리보기 제거됨
-# try:
-#     from pdf2image import convert_from_path
-# except ImportError:
-#     convert_from_path = None
-
-# ────────────────────────────────────────────────────────────
-# DB → Python
-# ────────────────────────────────────────────────────────────
 
 def fetch_iCloud_items(backup_path: str):
-    db_path = (
-        Path(backup_path)
-        / "ad"
-        / "ad93b887b94d8d6c485aed7c0cb561474e5f10c1"
-    )
+    db_path = Path(backup_path) / "ad" / "ad93b887b94d8d6c485aed7c0cb561474e5f10c1"
     if not db_path.exists():
         return [("Error", f"DB not found: {db_path}", "")]
 
-    rows: list[tuple[str, int, str]] = []
+    rows = []
     try:
         with sqlite3.connect(str(db_path)) as conn:
             cur = conn.cursor()
-            cur.execute(
-                """
+            cur.execute("""
                 SELECT item_filename, version_size, item_birthtime
                   FROM server_items
                  WHERE item_type = 1
                  ORDER BY item_birthtime DESC
-                """
-            )
+            """)
             for fname, fsize, birth in cur.fetchall():
                 fname = unicodedata.normalize("NFC", fname or "")
                 ts = int(birth or 0)
@@ -58,49 +34,34 @@ def fetch_iCloud_items(backup_path: str):
                 rows.append((fname, fsize or 0, created))
     except Exception as e:
         rows.append(("Error", str(e), ""))
-
     return rows
 
-# ────────────────────────────────────────────────────────────
-# Helper – 백업 경로 검색 & 외부 열기
-# ────────────────────────────────────────────────────────────
 
-def _find_backup_file(dest_root: Path, filename: str) -> Path | None:
+def _find_backup_file(dest_root: Path, filename: str, expected_size: int | None = None) -> Path | None:
     if not dest_root.exists():
         return None
     for p in dest_root.rglob('*'):
         if p.is_file() and p.name == filename:
-            return p
+            if expected_size is None or p.stat().st_size == expected_size:
+                return p
     return None
 
-def _open_external(filepath: Path):
-    try:
-        if platform.system() == "Windows":
-            os.startfile(filepath)
-        elif platform.system() == "Darwin":
-            subprocess.call(["open", str(filepath)])
-        else:
-            subprocess.call(["xdg-open", str(filepath)])
-    except Exception as e:
-        messagebox.showerror("Open Error", str(e))
 
-# ────────────────────────────────────────────────────────────
-# UI
-# ────────────────────────────────────────────────────────────
 
 def display_iCloud(content_frame, backup_path: str):
     for w in content_frame.winfo_children():
         w.destroy()
 
-    left  = ttk.Frame(content_frame)
-    right = ttk.Frame(content_frame, width=360)
-    left.pack(side="left", fill="both", expand=True)
-    right.pack(side="left", fill="both")
-    right.pack_propagate(False)
+    pw = ttk.PanedWindow(content_frame, orient="horizontal")
+    pw.pack(fill="both", expand=True)
+
+    left = ttk.Frame(pw)
+    right = ttk.Frame(pw)
+    pw.add(left,  weight=4)
+    pw.add(right, weight=6)
 
     header = ttk.Frame(left)
     header.pack(anchor="w", pady=(0, 6), fill="x")
-
     ttk.Label(header, text="☁️  iCloud Files", style="CardHeader.TLabel").pack(side="left")
 
     def link_icloud():
@@ -110,7 +71,7 @@ def display_iCloud(content_frame, backup_path: str):
             try:
                 icloud_utiles = import_module("iCloud_utiles")
             except ModuleNotFoundError:
-                tk.messagebox.showerror("Import Error", "iCloud_utiles 모듈을 찾을 수 없습니다.")
+                tk.messagebox.showerror("Import Error", "iCloud_utiles module not found.")
                 return
 
         def refresh_after_download():
@@ -126,29 +87,29 @@ def display_iCloud(content_frame, backup_path: str):
             on_complete=refresh_after_download,
         )
 
-    ttk.Button(header, text="iCloud 연동", command=link_icloud).pack(side="left", padx=(10, 0))
+    ttk.Button(header, text="Sync iCloud", command=link_icloud).pack(side="left", padx=(10, 0))
 
     table = ttk.Frame(left)
     table.pack(fill="both", expand=True)
 
-    cols  = ("filename", "size", "created")
-    tree  = ttk.Treeview(table, columns=cols, show="headings")
+    cols = ("filename", "size", "created")
+    tree = ttk.Treeview(table, columns=cols, show="headings")
     tree.heading("filename", text="FileName")
     tree.heading("size",     text="FileSize")
-    tree.heading("created",  text="FileCreateTime")
-    tree.column("filename", width=320, stretch=True)
-    tree.column("size",     width=100, anchor="e")
-    tree.column("created",  width=150, anchor="center")
+    tree.heading("created",  text="Created Time")
+    tree.column("filename", width=250, stretch=True)
+    tree.column("size",     width=50, anchor="e")
+    tree.column("created",  width=100, anchor="center")
     tree.tag_configure("stripe", background="#f5f5f5")
 
     vsb = ttk.Scrollbar(table, orient="vertical",   command=tree.yview)
     hsb = ttk.Scrollbar(table, orient="horizontal", command=tree.xview)
     tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
-    table.rowconfigure(0, weight=1)
-    table.columnconfigure(0, weight=1)
     tree.grid(row=0, column=0, sticky="nsew")
     vsb.grid(row=0, column=1, sticky="ns")
     hsb.grid(row=1, column=0, sticky="ew")
+    table.rowconfigure(0, weight=1)
+    table.columnconfigure(0, weight=1)
 
     data = fetch_iCloud_items(backup_path)
 
@@ -166,9 +127,9 @@ def display_iCloud(content_frame, backup_path: str):
     def update_status_label():
         dest_root = Path(backup_path) / "iCloud_Drive_Backup"
         if dest_root.exists():
-            status_lbl.config(text="✅  iCloud 연동됨.\n미리보기 가능")
+            status_lbl.config(text="✅  iCloud Synced.\nPreview available.")
         else:
-            status_lbl.config(text="⚠️  iCloud 연동 필요.\n미리보기 불가")
+            status_lbl.config(text="⚠️  iCloud Sync Needed.\nPreview unavailable.")
 
     update_status_label()
 
@@ -176,50 +137,75 @@ def display_iCloud(content_frame, backup_path: str):
         sel = tree.selection()
         if not sel:
             return
-        fname = tree.item(sel[0]).get('values', [None])[0]
+        values = tree.item(sel[0]).get('values', [None, 0])
+        fname = values[0]
+        fsize = values[1]
         if not fname or fname.startswith("Error"):
             return
 
         dest_root = Path(backup_path) / "iCloud_Drive_Backup"
-        file_path = _find_backup_file(dest_root, fname)
+        file_path = _find_backup_file(dest_root, fname, expected_size=fsize)
 
         for w in right.winfo_children():
             w.destroy()
 
         if not file_path:
-            ttk.Label(right, text=f"❌  '{fname}' 파일을 찾을 수 없습니다.").pack(expand=True)
+            ttk.Label(right, text=f"❌  File '{fname}' not found or size mismatch.").pack(expand=True)
             return
 
-        ext = file_path.suffix.lower()
+        right.rowconfigure(0, weight=1)
+        right.columnconfigure(0, weight=1)
 
-        if ext in {'.png', '.jpg', '.jpeg', '.gif'} and Image and ImageTk:
-            try:
-                img = Image.open(file_path)
-                img.thumbnail((340, 340))
-                photo = ImageTk.PhotoImage(img)
-                lbl = ttk.Label(right, image=photo)
-                lbl.image = photo
-                lbl.pack(expand=True)
-            except Exception as e:
-                ttk.Label(right, text=f"⚠️ 이미지 로드 오류: {e}").pack(expand=True)
+        preview_frame = ttk.Frame(right)
+        preview_frame.grid(row=0, column=0, sticky="nsew")
 
-        elif ext == '.pdf':
-            ttk.Label(right, text=f"📄  {file_path.name}").pack(pady=(60, 10))
-            ttk.Button(
-                right,
-                text="외부 앱으로 열기",
-                command=lambda p=file_path: _open_external(p)
-            ).pack()
+        preview_canvas = tk.Canvas(preview_frame, highlightthickness=0, bg="white")
+        preview_canvas.grid(row=0, column=0, sticky="nsew")
 
-        elif ext in {'.mp4', '.pptx', '.docx'}:
-            ttk.Label(right, text=f"📄  {file_path.name}").pack(pady=(60, 10))
-            ttk.Button(
-                right,
-                text="외부 앱으로 열기",
-                command=lambda p=file_path: _open_external(p)
-            ).pack()
-        else:
-            ttk.Label(right, text="⚠️ 지원되지 않는 형식입니다.").pack(expand=True)
+        v_scroll = ttk.Scrollbar(preview_frame, orient="vertical", command=preview_canvas.yview)
+        preview_canvas.configure(yscrollcommand=v_scroll.set)
+        v_scroll.grid(row=0, column=1, sticky="ns")
+
+        h_scroll = ttk.Scrollbar(preview_frame, orient="horizontal", command=preview_canvas.xview)
+        preview_canvas.configure(xscrollcommand=h_scroll.set)
+        h_scroll.grid(row=1, column=0, sticky="ew")
+
+        preview_frame.rowconfigure(0, weight=1)
+        preview_frame.columnconfigure(0, weight=1)
+
+        inner_frame = ttk.Frame(preview_canvas)
+        window_id = preview_canvas.create_window((0, 0), window=inner_frame, anchor="nw")
+
+        def _on_frame_configure(event):
+            preview_canvas.configure(scrollregion=preview_canvas.bbox("all"))
+        inner_frame.bind("<Configure>", _on_frame_configure)
+
+        def _on_canvas_configure(event):
+            new_w = event.width
+            new_h = event.height
+            preview_canvas.itemconfig(window_id, width=new_w, height=new_h)
+        preview_canvas.bind("<Configure>", _on_canvas_configure)
+
+        def _on_preview_enter(e):
+            preview_canvas.focus_set()
+
+        def _on_preview_wheel(e):
+            preview_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        preview_canvas.bind("<Enter>", _on_preview_enter)
+        preview_canvas.bind("<MouseWheel>", _on_preview_wheel)
+
+        render_preview(inner_frame, file_path)
+
+        def _on_tree_enter(e):
+            tree.focus_set()
+
+        def _on_tree_wheel(e):
+            tree.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        tree.bind("<Enter>", _on_tree_enter)
+        tree.bind("<MouseWheel>", _on_tree_wheel)
 
     tree.bind("<<TreeviewSelect>>", _preview_selected)
-    tree.bind("<MouseWheel>", lambda e: tree.yview_scroll(int(-1 * (e.delta / 120)), "units"))
+    tree.bind("<Enter>", lambda e: tree.focus_set())
+    left.bind("<Enter>", lambda e: None)
