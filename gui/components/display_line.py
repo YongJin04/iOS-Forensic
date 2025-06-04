@@ -64,7 +64,7 @@ def display_line(parent: tk.Misc, backup_path: str) -> None:
     tv.heading("cid", text="UserName")
     tv.heading("last", text="LastSendTime")
     tv.column("cid", width=150, anchor="w")
-    tv.column("last", width=180, stretch=True)
+    tv.column("last", width=180, stretch=True, anchor="center")
     tv.tag_configure("stripe", background="#f5f5f5")
 
     vsb = ttk.Scrollbar(chat_list_fr, orient="vertical", command=tv.yview)
@@ -72,7 +72,7 @@ def display_line(parent: tk.Misc, backup_path: str) -> None:
     tv.pack(side="left", fill="both", expand=True)
     vsb.pack(side="right", fill="y")
 
-    def _fill(rows: list[ChatRow]) -> None:
+    def _fill(rows: list["LineAnalyzer.ChatRow"]) -> None:
         tv.delete(*tv.get_children())
         for i, r in enumerate(rows):
             # 변경: values에 chat_id가 아닌 display_name을 넣음

@@ -4,6 +4,7 @@ import os
 import sqlite3
 from datetime import datetime, timedelta  # Apple Absolute Time 변환을 위해 timedelta 사용
 from typing import List, Dict, Optional
+from typing import Tuple
 
 
 def format_time(ts: float) -> str:
@@ -78,7 +79,7 @@ class LineAnalyzer:
             # 실패하더라도 빈 dict로 둡니다.
             pass
 
-    def load(self) -> (bool, str):
+    def load(self) -> Tuple[bool, str]:
         """
         ZCHAT 테이블의 Z_PK(Z채팅ID), ZLASTUPDATED(마지막 발신 시간) 컬럼을 읽어 ChatRow 객체 리스트를 생성.
         이후 ZUSER를 로드하여 self.users에 사용자 이름 매핑.

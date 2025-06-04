@@ -7,8 +7,8 @@ This tool supports analysis of the following iOS artifacts
 
 ### Default iOS Artifacts
 - Contacts
-- Callhistory
-- SMS / iMessage
+- Call History
+- iMessage
 - Notes
 - Gallery / Deleted Image
 - Calendar
@@ -16,19 +16,22 @@ This tool supports analysis of the following iOS artifacts
 ### Messenger Applications
 - KakaoTalk
 - Instagram
-- Telegram
+- Line
+- LinkedIn
 
 ### Browser Artifacts
 - Safari
 - Chrome
-- Firefox
 
 ### User Activity Artifacts
-- GPS Locations
-- Bluetooth Devices
-- Wi-Fi / MAC Address
-- SIM Card
 - User Account
+- Wi-Fi / MAC Address
+- Bluetooth Devices
+- Installed Applications    
+
+### Documents
+- Documents
+- iCloud
 
 ### Backup Decryption
 - Supports decryption of encrypted iOS backups for artifact extraction
