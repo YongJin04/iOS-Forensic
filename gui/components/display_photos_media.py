@@ -26,7 +26,7 @@ try:
 except ModuleNotFoundError:
     pass
 
-COLS, ROWS = 6, 4
+COLS, ROWS = 9, 4
 PAGE_SIZE = COLS * ROWS
 THUMB_SIDE = 120
 
