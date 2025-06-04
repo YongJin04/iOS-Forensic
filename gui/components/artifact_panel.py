@@ -18,6 +18,7 @@ from gui.components.display_instagram import *
 from gui.components.display_notes import *
 from gui.components.display_iCloud import *
 from gui.components.display_document import *
+from gui.components.display_LinkedIn import *
 
 def create_artifact_analysis_options(parent, backup_path_var, colors):
     """Create artifact analysis options."""
@@ -39,20 +40,27 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
     categories = [
         {"name": "Device Info", "icon": "📱", "command": lambda: display_device_info(content_frame, backup_path_var.get())},
         {"name": "Installed Applications", "icon": "🛠️", "command": lambda: display_installed_applications(content_frame, backup_path_var.get())},
-        {"name": "User Account", "icon": "👤", "command": lambda: display_user_account(content_frame, backup_path_var.get())},
-        {"name": "Wi-Fi", "icon": "📶", "command": lambda: display_wifi(content_frame, backup_path_var.get())},
-        {"name": "Browser", "icon": "🌐", "command": lambda: display_browser(content_frame, backup_path_var.get())},
+        
+        {"name": "iMessage", "icon": "✉️", "command": lambda: display_imessage(content_frame, backup_path_var.get())},
         {"name": "KakaoTalk", "icon": "💬", "command": lambda: display_kakaotalk(content_frame, backup_path_var.get())},
         {"name": "instagram", "icon": "💬", "command": lambda: display_instagram(content_frame, backup_path_var.get())},
+        {"name": "LinkedIn", "icon": "💼", "command": lambda: display_LinkedIn(content_frame, backup_path_var.get())},
+        {"name": "Line", "icon": "✉️", "command": lambda: display_line(content_frame, backup_path_var.get())},
+
         {"name": "Contact", "icon": "📗", "command": lambda: display_contact_content(content_frame, backup_path_var.get())},
         {"name": "Call History", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},
-        {"name": "iMessage", "icon": "✉️", "command": lambda: display_imessage(content_frame, backup_path_var.get())},
-        {"name": "Line", "icon": "✉️", "command": lambda: display_line(content_frame, backup_path_var.get())},
-        {"name": "Calendar", "icon": "📅", "command": lambda: display_calendar(content_frame, backup_path_var.get())},
-        {"name": "Notes", "icon": "📝", "command": lambda: display_notes(content_frame, backup_path_var.get())},
+
+        {"name": "Browser", "icon": "🌐", "command": lambda: display_browser(content_frame, backup_path_var.get())},
+
         {"name": "Document", "icon": "📄", "command": lambda: display_document(content_frame, backup_path_var.get())},
         {"name": "iCloud", "icon": "☁️", "command": lambda: display_iCloud(content_frame, backup_path_var.get())},
+
         {"name": "Gallery", "icon": "🖼️", "command": lambda: display_photos_media(content_frame, backup_path_var.get())},
+        {"name": "Notes", "icon": "📝", "command": lambda: display_notes(content_frame, backup_path_var.get())},
+        {"name": "Calendar", "icon": "📅", "command": lambda: display_calendar(content_frame, backup_path_var.get())},
+
+        {"name": "User Account", "icon": "👤", "command": lambda: display_user_account(content_frame, backup_path_var.get())},
+        {"name": "Wi-Fi", "icon": "📶", "command": lambda: display_wifi(content_frame, backup_path_var.get())},
         {"name": "Bluetooth", "icon": "🔵", "command": lambda: display_bluetooth(content_frame, backup_path_var.get())},
     ]
 

@@ -33,8 +33,8 @@ def start_gui() -> None:
     # 스타일 및 색상
     colors = apply_styles(rootWindow)
 
-    rootWindow.minsize(1500, 920)
-    rootWindow.geometry("1500x920")
+    rootWindow.minsize(1700, 970)
+    rootWindow.geometry("1700x970")
     rootWindow.configure(bg=colors["bg_light"])
 
     # 앱 아이콘
