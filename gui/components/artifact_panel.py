@@ -17,6 +17,7 @@ from backup_analyzer.build_tree import *
 from gui.components.display_instagram import *
 from gui.components.display_notes import *
 from gui.components.display_iCloud import *
+from gui.components.display_document import *
 
 def create_artifact_analysis_options(parent, backup_path_var, colors):
     """Create artifact analysis options."""

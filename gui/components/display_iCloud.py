@@ -195,7 +195,8 @@ def display_iCloud(content_frame, backup_path: str):
         preview_canvas.bind("<Enter>", _on_preview_enter)
         preview_canvas.bind("<MouseWheel>", _on_preview_wheel)
 
-        render_preview(inner_frame, file_path)
+        ext = file_path.suffix.lower()
+        render_preview(inner_frame, file_path, ext)
 
         def _on_tree_enter(e):
             tree.focus_set()
