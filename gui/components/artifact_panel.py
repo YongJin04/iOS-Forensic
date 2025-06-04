@@ -19,6 +19,7 @@ from gui.components.display_notes import *
 from gui.components.display_iCloud import *
 from gui.components.display_document import *
 from gui.components.display_LinkedIn import *
+from gui.components.display_line import *
 
 def create_artifact_analysis_options(parent, backup_path_var, colors):
     """Create artifact analysis options."""
@@ -42,10 +43,10 @@ def create_artifact_analysis_options(parent, backup_path_var, colors):
         {"name": "Installed Applications", "icon": "🛠️", "command": lambda: display_installed_applications(content_frame, backup_path_var.get())},
         
         {"name": "iMessage", "icon": "✉️", "command": lambda: display_imessage(content_frame, backup_path_var.get())},
-        {"name": "KakaoTalk", "icon": "💬", "command": lambda: display_kakaotalk(content_frame, backup_path_var.get())},
-        {"name": "instagram", "icon": "💬", "command": lambda: display_instagram(content_frame, backup_path_var.get())},
-        {"name": "LinkedIn", "icon": "💼", "command": lambda: display_LinkedIn(content_frame, backup_path_var.get())},
+        {"name": "KakaoTalk", "icon": "✉️", "command": lambda: display_kakaotalk(content_frame, backup_path_var.get())},
+        {"name": "instagram", "icon": "✉️", "command": lambda: display_instagram(content_frame, backup_path_var.get())},
         {"name": "Line", "icon": "✉️", "command": lambda: display_line(content_frame, backup_path_var.get())},
+        {"name": "LinkedIn", "icon": "💼", "command": lambda: display_LinkedIn(content_frame, backup_path_var.get())},
 
         {"name": "Contact", "icon": "📗", "command": lambda: display_contact_content(content_frame, backup_path_var.get())},
         {"name": "Call History", "icon": "📞", "command": lambda: display_call_history(content_frame, backup_path_var.get())},
