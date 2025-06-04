@@ -45,13 +45,16 @@ def fetch_user_accounts(backup_path: str):
 
 
 def display_user_account(content_frame, backup_path):
-    """User Account - Bluetooth 설정 DB에서 ZACCOUNT 정보 표시"""
+    """User Account - Bluetooth 설정 DB에서 ZACCOUNT 정보 표시 (화면 꽉 채우기 적용)"""
+    # 기존에 있던 위젯들 제거
     for widget in content_frame.winfo_children():
         widget.destroy()
 
+    # 상위 프레임: 전체를 채우도록 pack(fill, expand)
     frame = ttk.Frame(content_frame, style="Card.TFrame", padding=20)
     frame.pack(fill="both", expand=True, padx=10, pady=10)
 
+    # 헤더
     ttk.Label(frame, text="👤 User Account", style="CardHeader.TLabel").pack(
         anchor="w", pady=(0, 15)
     )
@@ -71,11 +74,11 @@ def display_user_account(content_frame, backup_path):
     table_frame = ttk.Frame(frame)
     table_frame.pack(fill="both", expand=True)
 
+    # Treeview 생성 (높이(height) 대신, 부모 프레임에 맞춰 늘어나도록 stretch=True 설정)
     tree = ttk.Treeview(
         table_frame,
         columns=("Username", "OwningID", "Description", "Identifier", "Date"),
         show="headings",
-        height=12,
     )
 
     # 헤더
@@ -85,12 +88,12 @@ def display_user_account(content_frame, backup_path):
     tree.heading("Identifier", text="Identifier")
     tree.heading("Date", text="Date (Apple Time)")
 
-    # 열 폭
-    tree.column("Username", width=160, stretch=False)
-    tree.column("OwningID", width=180, stretch=False)
-    tree.column("Description", width=180, stretch=False)
-    tree.column("Identifier", width=200, stretch=False)
-    tree.column("Date", width=160, stretch=False)
+    # 열 폭: stretch=True 로 변경 (창 크기에 맞춰 자동으로 늘어남)
+    tree.column("Username", width=160, stretch=True)      # stretch=True
+    tree.column("OwningID", width=180, stretch=True)      # stretch=True
+    tree.column("Description", width=180, stretch=True)   # stretch=True
+    tree.column("Identifier", width=200, stretch=True)    # stretch=True
+    tree.column("Date", width=160, stretch=True)          # stretch=True
 
     # 스트라이프
     tree.tag_configure("stripe", background="#f5f5f5")
@@ -99,15 +102,16 @@ def display_user_account(content_frame, backup_path):
         tag = ("stripe",) if idx % 2 else ()
         tree.insert("", "end", values=row, tags=tag)
 
-    # ★ 레이아웃 개선: 세로·가로 스크롤바 추가
+    # 세로·가로 스크롤바 추가
     vsb = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
     hsb = ttk.Scrollbar(table_frame, orient="horizontal", command=tree.xview)
     tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
-    # grid 배치로 프레임 안에서 리사이즈
+    # table_frame 내부 그리드 설정: 0번 행/열이 빈틈없이 늘어나도록
     table_frame.rowconfigure(0, weight=1)
     table_frame.columnconfigure(0, weight=1)
 
+    # Treeview와 Scrollbar 배치 (그리드)
     tree.grid(row=0, column=0, sticky="nsew")
     vsb.grid(row=0, column=1, sticky="ns")
     hsb.grid(row=1, column=0, sticky="ew")

@@ -101,13 +101,19 @@ def display_notes(content_frame: ttk.Frame, backup_path: str):
     ttk.Label(header, text="📝 Notes", style="ContentHeader.TLabel").pack(side="left")
     ttk.Separator(content_frame, orient="horizontal").pack(fill="x", pady=(0, 15))
 
-    # ― 좌/우 컨테이너
-    container = ttk.Frame(content_frame); container.pack(fill="both", expand=True)
+    # ― 좌/우 컨테이너: grid 사용
+    container = ttk.Frame(content_frame)
+    container.pack(fill="both", expand=True)
+    # container를 1행 2열 구조로 설정
+    container.rowconfigure(0, weight=1)
+    container.columnconfigure(0, weight=2)  # 왼쪽(노트 목록)에 큰 비중(2)
+    container.columnconfigure(1, weight=1)  # 오른쪽(상세 뷰)에 작은 비중(1)
 
     # ────────────────────────────────────────────────────────────────
     # ① 왼쪽: 검색 바 + 노트 목록
     # ────────────────────────────────────────────────────────────────
-    left = ttk.Frame(container); left.pack(side="left", fill="both", padx=(0, 5))
+    left = ttk.Frame(container)
+    left.grid(row=0, column=0, sticky="nsew", padx=(0, 5), pady=0)
 
     # ①-A. 검색 바  (Title 검색)
     search_bar = ttk.Frame(left)
@@ -122,7 +128,8 @@ def display_notes(content_frame: ttk.Frame, backup_path: str):
     btn_search.pack(side="left", padx=4)
 
     # ①-B. 트리뷰
-    tree_frame = ttk.Frame(left); tree_frame.pack(fill="both", expand=True)
+    tree_frame = ttk.Frame(left)
+    tree_frame.pack(fill="both", expand=True)
 
     notes_tree = ttk.Treeview(
         tree_frame,
@@ -130,13 +137,14 @@ def display_notes(content_frame: ttk.Frame, backup_path: str):
         show="headings",
         selectmode="browse",
     )
-    notes_tree.heading("title",    text="Title")
-    notes_tree.heading("created",  text="Created At")
+    notes_tree.heading("title", text="Title")
+    notes_tree.heading("created", text="Created At")
     notes_tree.heading("modified", text="Modified At")
 
-    notes_tree.column("title",    width=180)
-    notes_tree.column("created",  width=115)
-    notes_tree.column("modified", width=115)
+    # 컬럼 폭은 초기값만 두고, 필요한 경우 stretch 옵션 추가 가능
+    notes_tree.column("title", width=180, stretch=True)
+    notes_tree.column("created", width=115, stretch=True)
+    notes_tree.column("modified", width=115, stretch=True)
     notes_tree.pack(side="left", fill="both", expand=True)
 
     # 스크롤바
@@ -145,14 +153,17 @@ def display_notes(content_frame: ttk.Frame, backup_path: str):
     yscroll.pack(side="right", fill="y")
 
     # 스트라이프 배경
-    notes_tree.tag_configure("oddrow",  background="white")
+    notes_tree.tag_configure("oddrow", background="white")
     notes_tree.tag_configure("evenrow", background="#F5F5F5")
 
     # ────────────────────────────────────────────────────────────────
     # ② 오른쪽: 상세 뷰
     # ────────────────────────────────────────────────────────────────
-    right = ttk.Frame(container); right.pack(side="right", fill="both", expand=True, padx=(5, 0))
-    detail = ttk.Frame(right); detail.pack(fill="both", expand=True)
+    right = ttk.Frame(container)
+    right.grid(row=0, column=1, sticky="nsew", padx=(5, 0), pady=0)
+
+    detail = ttk.Frame(right)
+    detail.pack(fill="both", expand=True)
 
     #  제목(선택된 노트의 Title)
     title_label = ttk.Label(detail, text="", style="Bold.TLabel")
@@ -167,7 +178,8 @@ def display_notes(content_frame: ttk.Frame, backup_path: str):
     scroll.pack(side="right", fill="y")
 
     # 미디어 재생 버튼(필요 시 활성화)
-    btn_frame = ttk.Frame(detail); btn_frame.pack(anchor="w", pady=(10, 0))
+    btn_frame = ttk.Frame(detail)
+    btn_frame.pack(anchor="w", pady=(10, 0))
     play_media_btn = ttk.Button(btn_frame, text="▶️ 미디어 재생", state=tk.DISABLED)
     play_media_btn.pack(side="left")
 
@@ -208,7 +220,7 @@ def display_notes(content_frame: ttk.Frame, backup_path: str):
         # ① 타이틀
         title_label.config(text=note.get("title", ""))
 
-        # ② 본문 (전체 content 사용)  ← FIXED
+        # ② 본문 (전체 content 사용)
         note_text.config(state="normal")
         note_text.delete("1.0", tk.END)
         note_text.insert(tk.END, note.get("content", note.get("내용 미리보기", "")))

@@ -9,7 +9,6 @@ def clean_address(address: str) -> str:
         return parts[-1] if parts else address
     return address
 
-
 def fetch_bluetooth_devices(backup_path: str):
     """OtherDevices → (uuid, name, mac, last_seen_raw)"""
     db_path = Path(backup_path) / "3a/3afe56e2c5aa8c090ded49445d95e8769ef34899"
@@ -27,13 +26,12 @@ def fetch_bluetooth_devices(backup_path: str):
                         uuid,
                         name or "",
                         clean_address(addr),
-                        last if last is not None else "Unknown",  # ← 원본 그대로
+                        last if last is not None else "Unknown",
                     )
                 )
     except Exception as e:
         results.append(("Error", str(e), "", ""))
     return results
-
 
 def display_bluetooth(content_frame, backup_path: str):
     # ---------- 레이아웃 초기화 ----------
@@ -64,16 +62,15 @@ def display_bluetooth(content_frame, backup_path: str):
     cols = ("uuid", "name", "addr", "seen")
     tree = ttk.Treeview(table, columns=cols, show="headings")
 
+    # 헤더
     tree.heading("uuid", text="UUID")
     tree.heading("name", text="Device Name")
     tree.heading("addr", text="MAC Address")
     tree.heading("seen", text="Last Seen")
 
-    # 폭/정렬 조정
-    tree.column("uuid", width=320, stretch=False)
-    tree.column("name", width=220, stretch=False)
-    tree.column("addr", width=120, stretch=False)
-    tree.column("seen", width=70, anchor="center", stretch=True)
+    # 모든 컬럼에 동일한 width와 stretch=True 적용 (균등 분배)
+    for col in cols:
+        tree.column(col, width=100, stretch=True)
 
     tree.tag_configure("stripe", background="#f5f5f5")
 

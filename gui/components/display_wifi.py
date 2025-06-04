@@ -13,8 +13,11 @@ def display_wifi(content_frame, backup_path):
     root.pack(fill="both", expand=True)
 
     # 제목
-    ttk.Label(root, text="📶 Wi-Fi 분석 (테이블 보기)",
-              style="CardHeader.TLabel").pack(anchor="w", pady=(0, 6))
+    ttk.Label(
+        root,
+        text="📶 Wi-Fi 분석 (테이블 보기)",
+        style="CardHeader.TLabel"
+    ).pack(anchor="w", pady=(0, 6))
 
     # ── 검색 바 ─────────────────────────────────────────────────
     search_bar = ttk.Frame(root)
@@ -35,16 +38,15 @@ def display_wifi(content_frame, backup_path):
     tree = ttk.Treeview(table, columns=cols, show="headings")
 
     # 헤더
-    tree.heading("ssid",        text="SSID_STR")
-    tree.heading("mac",         text="MAC_Address")
-    tree.heading("lastjoined",  text="Last Joined")
-    tree.heading("addedat",     text="Added At")
+    tree.heading("ssid",       text="SSID_STR")
+    tree.heading("mac",        text="MAC_Address")
+    tree.heading("lastjoined", text="Last Joined")
+    tree.heading("addedat",    text="Added At")
 
-    # 열 폭 (마지막 열 stretch = True → 남는 폭 흡수)
-    tree.column("ssid",        width=180, stretch=False)
-    tree.column("mac",         width=180, stretch=False)
-    tree.column("lastjoined",  width=200, stretch=False)
-    tree.column("addedat",     width=200, stretch=True)
+    # 열 폭: 모두 동일한 width를 주고 stretch=True 로 설정
+    # (초기 width가 같으면, 창 크기에 맞춰 나머지 공간을 균등 분배)
+    for col in cols:
+        tree.column(col, width=100, stretch=True)
 
     # 스트라이프 줄무늬
     tree.tag_configure("stripe", background="#f5f5f5")
